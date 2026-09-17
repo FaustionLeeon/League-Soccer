@@ -145,6 +145,12 @@ public:
   void operator()();
 
 protected:
+  // Opt-in render evidence for automated runs; normal gameplay does no readback.
+  void CaptureFrame();
+  std::string captureDirectory;
+  unsigned int captureCount = 0;
+  Uint32 lastCaptureTime = 0;
+
   SDL_GLContext context;
   SDL_Window* window;
   int context_width, context_height, context_bpp;

@@ -70,8 +70,8 @@ AnimCollection::AnimCollection(std::shared_ptr<Scene3D> scene3D) : scene3D(scene
     else if (velocityID == 3)
       velocity = e_Velocity_Sprint;
 
-    for (int angleID = 0; angleID < 11; angleID++) {
-      radian angle;
+    for (int angleID = 0; angleID < 10; angleID++) {
+      radian angle = 0.0f;
       if (angleID == 0)
         angle = pi / 180.0f * 0.0f;
       else if (angleID == 1)
@@ -92,7 +92,6 @@ AnimCollection::AnimCollection(std::shared_ptr<Scene3D> scene3D) : scene3D(scene
         angle = pi / 180.0f * -90.0f;
       else if (angleID == 9)
         angle = pi / 180.0f * -135.0f;
-      // else if (angleID == 10) angle = pi / 180.0f * -179.0f;
 
       Quadrant quadrant;
       quadrant.id = id;

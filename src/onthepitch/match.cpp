@@ -1,5 +1,8 @@
 #include "match.hpp"
 
+#include <algorithm>
+#include <random>
+
 #include "../main.hpp"
 #include "AIsupport/AIfunctions.hpp"
 #include "base/geometry/triangle.hpp"
@@ -598,7 +601,7 @@ void Match::RandomizeAdboards(boost::intrusive_ptr<Node> stadiumNode) {
 
   DirectoryParser parser;
   std::vector<std::string> files;
-  parser.Parse("media/textures/adboards", "png", files, false);
+  parser.Parse("media/textures/adboards/memes", "png", files, false);
 
   std::vector<boost::intrusive_ptr<Resource<Surface>>> adboardSurfaces;
   for (unsigned int i = 0; i < files.size(); i++) {
@@ -611,6 +614,11 @@ void Match::RandomizeAdboards(boost::intrusive_ptr<Node> stadiumNode) {
     printf("%zu adboards loaded (out of %zu files)\n", adboardSurfaces.size(), files.size());
   if (adboardSurfaces.empty())
     return;
+
+  // Deal a shuffled rotation so every design is used before one repeats.
+  std::mt19937 adboardRandom(std::random_device{}());
+  std::shuffle(adboardSurfaces.begin(), adboardSurfaces.end(), adboardRandom);
+  size_t nextAdboard = 0;
 
   // collect adboard geoms
 
@@ -638,7 +646,7 @@ void Match::RandomizeAdboards(boost::intrusive_ptr<Node> stadiumNode) {
         // printf("%s\n", identString.c_str());
         if (identString.find("ad_placeholder") == 0) {
           tmesh.at(i).material.diffuseTexture =
-              adboardSurfaces.at(int(floor(random(0, adboardSurfaces.size() - 1.001f))));
+              adboardSurfaces.at(nextAdboard++ % adboardSurfaces.size());
           tmesh.at(i).material.specular_amount = 0.2f;
           tmesh.at(i).material.shininess = 0.1f;
         }

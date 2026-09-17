@@ -1,102 +1,44 @@
 #include "wavloader.hpp"
 
-#include <fstream>
-#include <vector>
+#include <limits>
+#include <memory>
+
+#include <SDL2/SDL.h>
 
 #include "base/log.hpp"
 
 namespace blunted {
 
 WAVLoader::WAVLoader() : Loader<SoundBuffer>() {}
-
 WAVLoader::~WAVLoader() {}
 
-// load file into resource
 void WAVLoader::Load(const std::string& filename,
                      boost::intrusive_ptr<Resource<SoundBuffer>> resource) {
-  int channels, bits;
-  unsigned int frequency;
-  long BUFFER_SIZE = 1024 * 1024 * 4;
-
-  FILE* f = nullptr;
-  fopen_s(&f, filename.c_str(), "rb");
-  if (!f) {
-    Log(e_FatalError, "WAVLoader", "Load", "Could not load " + filename + ": file not found");
+  SDL_AudioSpec spec{};
+  Uint8* samples = nullptr;
+  Uint32 byteCount = 0;
+  if (!SDL_LoadWAV(filename.c_str(), &spec, &samples, &byteCount)) {
+    Log(e_FatalError, "WAVLoader", "Load", "Could not load " + filename + ": " + SDL_GetError());
     return;
   }
-
-  std::vector<unsigned char> buffer(BUFFER_SIZE);
-  auto readExact = [&](size_t byteCount, const char* section) {
-    if (fread(buffer.data(), 1, byteCount, f) == byteCount)
-      return true;
-    fclose(f);
+  std::unique_ptr<Uint8, decltype(&SDL_FreeWAV)> ownedSamples(samples, SDL_FreeWAV);
+  const int bits = SDL_AUDIO_BITSIZE(spec.format);
+  if ((spec.format != AUDIO_U8 && spec.format != AUDIO_S16LSB) ||
+      (spec.channels != 1 && spec.channels != 2) || spec.freq <= 0 || byteCount == 0 ||
+      byteCount > static_cast<Uint32>((std::numeric_limits<int>::max)()) ||
+      byteCount % (spec.channels * (bits / 8)) != 0) {
     Log(e_FatalError, "WAVLoader", "Load",
-        "Could not load " + filename + ": unexpected end of " + section);
-    return false;
-  };
-
-  if (!readExact(12, "WAV header") || !readExact(8, "format header"))
-    return;
-  if (buffer[0] != 'f' || buffer[1] != 'm' || buffer[2] != 't' || buffer[3] != ' ') {
-    fclose(f);
-    Log(e_FatalError, "WAVLoader", "Load",
-        "Could not load " + filename + ": format information header incorrect");
+        "Could not load " + filename + ": expected nonempty mono/stereo 8-bit or 16-bit PCM");
     return;
   }
-
-  if (!readExact(2, "PCM format"))
-    return;
-
-  if (buffer[0] != 1 || buffer[1] != 0) {
-    fclose(f);
-    Log(e_FatalError, "WAVLoader", "Load", "Could not load " + filename + ": not PCM");
-    return;
-  }
-
-  if (!readExact(2, "channel count"))
-    return;
-  channels = buffer[1] << 8;
-  channels |= buffer[0];
-
-  if (!readExact(4, "sample frequency"))
-    return;
-  frequency = buffer[3] << 24;
-  frequency |= buffer[2] << 16;
-  frequency |= buffer[1] << 8;
-  frequency |= buffer[0];
-
-  if (!readExact(6, "block and byte rates"))
-    return;
-
-  if (!readExact(2, "sample bit depth"))
-    return;
-  bits = buffer[1] << 8;
-  bits |= buffer[0];
-
-  if (!readExact(8, "data header"))
-    return;
-  if (buffer[0] != 'd' || buffer[1] != 'a' || buffer[2] != 't' || buffer[3] != 'a') {
-    fclose(f);
-    Log(e_FatalError, "WAVLoader", "Load", "Could not load " + filename + ": data chunk not found");
-    return;
-  }
-
-  int size = static_cast<int>(fread(buffer.data(), 1, BUFFER_SIZE, f));
-
-  WavData* data = new WavData();
-  data->data = new unsigned char[size];
-  memcpy(data->data, buffer.data(), size * sizeof(unsigned char));
-  data->size = size;
-  data->channels = channels;
+  auto data = std::make_unique<WavData>();
+  data->data = new unsigned char[byteCount];
+  memcpy(data->data, samples, byteCount);
+  data->size = static_cast<int>(byteCount);
+  data->channels = spec.channels;
   data->bits = bits;
-  data->frequency = frequency;
-
-  // printf("wav data: %i bytes, %i channels, %i bits, %u freq\n", size * sizeof(unsigned char),
-  // channels, bits, frequency);
-
-  resource->GetResource()->SetData(data);
-
-  fclose(f);
+  data->frequency = spec.freq;
+  resource->GetResource()->SetData(data.release());
 }
 
 }  // namespace blunted

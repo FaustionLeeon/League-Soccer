@@ -126,15 +126,15 @@ void main(void) {
   fragColor = ContrastSaturationBrightness(fragColor, brightness, 1.0f, saturation);
   fragColor = AlternateContrast(fragColor, contrastBias);
   
-  // Cinematic Vignette with subtle Chromatic Aberration at edges
+  // Gentle broadcast vignette: keep touchlines and corner play readable.
   vec2 uv = texCoord * 2.0 - 1.0;
   float distSq = dot(uv, uv);
-  float vignette = max(0.0, 1.0 - distSq * 0.22);
-  fragColor *= pow(vignette, 1.15);
+  float vignette = max(0.0, 1.0 - distSq * 0.06);
+  fragColor *= vignette;
   
   // Subtle film grain (noise based on coordinates)
   float noise = fract(sin(dot(texCoord.xy ,vec2(12.9898,78.233))) * 43758.5453);
-  fragColor -= (noise * 0.015); // Add very faint grain to eliminate banding
+  fragColor += (noise - 0.5) / 255.0; // Zero-mean dither without darkening the pitch
 
   fragColor = clamp(fragColor, 0.0, 1.0);
 

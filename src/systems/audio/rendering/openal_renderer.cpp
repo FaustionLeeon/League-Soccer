@@ -19,7 +19,14 @@ bool OpenALRenderer::CreateContext() {
     return false;
 
   context = alcCreateContext(device, nullptr);
-  alcMakeContextCurrent(context);
+  if (!context || !alcMakeContextCurrent(context)) {
+    if (context) {
+      alcDestroyContext(context);
+      context = nullptr;
+    }
+    alcCloseDevice(device);
+    return false;
+  }
 
   SetListenerParameters(Vector3(0), Vector3(0), Quaternion(QUATERNION_IDENTITY));
 
@@ -27,10 +34,13 @@ bool OpenALRenderer::CreateContext() {
 }
 
 void OpenALRenderer::Exit() {
-  // printf("exiting openALrenderer\n");
+  if (!context) {
+    return;
+  }
   ALCdevice* device = alcGetContextsDevice(context);
   alcMakeContextCurrent(nullptr);
   alcDestroyContext(context);
+  context = nullptr;
   alcCloseDevice(device);
 }
 

@@ -1,0 +1,34 @@
+[
+  {
+    "file": "crowd01.wav",
+    "before_sha256": "0f896780103f24599cc8d1b243ebb9d0b54077a6b93afed17b1fd1e734cbb7f9",
+    "after_sha256": "55fa9595d15c9bf3748b3b8a708679cfb09459b054f676d7b131a5b68e86fa76",
+    "before_peak_dbfs": -1.799,
+    "after_peak_dbfs": -1.799,
+    "frames": 304291
+  },
+  {
+    "file": "crowd02.wav",
+    "before_sha256": "1db728558fd06c5b70b29abddc39a7f151e5a7eb23e1397dfb432a8d5254c831",
+    "after_sha256": "3989843a65a4a865f58f480b09747fe3b605fa9a2a80143a2602c70d84500c54",
+    "before_peak_dbfs": -1.798,
+    "after_peak_dbfs": -1.798,
+    "frames": 290203
+  },
+  {
+    "file": "goalpost.wav",
+    "before_sha256": "61ce2f1865a2342d87c0778151806ff3607fad188e706306998860ba7be0c73d",
+    "after_sha256": "91c6032ea0db9bcadab495282248509bfadbf88a7a72e8382e09b153824c3d98",
+    "before_peak_dbfs": 0.0,
+    "after_peak_dbfs": -1.5,
+    "frames": 20010
+  },
+  {
+    "file": "whistle3.wav",
+    "before_sha256": "2f35c74d91704c5c2ef0c1afd9abb83a8aef430356db6795d78bed14980bde12",
+    "after_sha256": "34b4d70f7ab71f6d21f2aeb24e791249e83e347fa8fd5e697c31872b79c1a171",
+    "before_peak_dbfs": -0.0,
+    "after_peak_dbfs": -1.5,
+    "frames": 64433
+  }
+]

@@ -24,6 +24,7 @@ add_executable(gameplayfootball_math_tests
   base/math_test.cpp
   onthepitch/ball_physics_test.cpp
   onthepitch/gameplay_audit_test.cpp
+  onthepitch/pitch_sampling_test.cpp
 )
 
 target_include_directories(gameplayfootball_math_tests PRIVATE
@@ -140,3 +141,20 @@ target_link_libraries(gameplayfootball_career_tests PRIVATE
 gtest_discover_tests(gameplayfootball_career_tests
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
+
+# Exercise the production WAV loader when the SDL game is available.
+if(TARGET blunted2)
+  add_executable(gameplayfootball_audio_tests audio/wav_loader_test.cpp)
+  gf_target_includes(gameplayfootball_audio_tests)
+  target_link_libraries(gameplayfootball_audio_tests PRIVATE blunted2 GTest::gtest_main)
+  if(GF_SDL2_TARGET)
+    target_link_libraries(gameplayfootball_audio_tests PRIVATE ${GF_SDL2_TARGET})
+  else()
+    target_link_libraries(gameplayfootball_audio_tests PRIVATE ${SDL2_LIBRARIES})
+  endif()
+  # Share the game's runtime DLL directory on Windows.
+  set_target_properties(gameplayfootball_audio_tests PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+  gtest_discover_tests(gameplayfootball_audio_tests
+    DISCOVERY_MODE PRE_TEST WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+endif()

@@ -2264,9 +2264,12 @@ AudioPage::AudioPage(Gui2WindowManager* windowManager, const Gui2PageData& pageD
 
   grid->UpdateLayout(0.5);
 
-  sliderVolume->SetValue(GetConfiguration()->GetReal("audio_volume", 0.5));
+  sliderVolume->SetValue(clamp(GetConfiguration()->GetReal("audio_volume", 0.5f), 0.0f, 1.0f));
   UpdateVolumeCaption();
-  sliderVolume->sig_OnChange.connect([this](Gui2Slider*) { UpdateVolumeCaption(); });
+  sliderVolume->sig_OnChange.connect([this](Gui2Slider*) {
+    GetConfiguration()->Set("audio_volume", sliderVolume->GetValue());
+    UpdateVolumeCaption();
+  });
 
   frame->AddView(grid);
   grid->Show();
@@ -2281,7 +2284,8 @@ AudioPage::AudioPage(Gui2WindowManager* windowManager, const Gui2PageData& pageD
 AudioPage::~AudioPage() {}
 
 void AudioPage::UpdateVolumeCaption() {
-  sliderVolume->SetCaption(Localization::GetInstance().Translate("audio_volume"));
+  sliderVolume->SetCaption(Localization::GetInstance().Translate("audio_volume") + " " +
+                           int_to_str(static_cast<int>(std::round(sliderVolume->GetValue() * 100))) + "%");
 }
 
 void AudioPage::Process() {

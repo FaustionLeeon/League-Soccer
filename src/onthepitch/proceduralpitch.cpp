@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "pitchsampling.hpp"
+
 #include "../gamedefines.hpp"
 #include "../main.hpp"  // for getconfig
 #include "../misc/perlin.h"
@@ -21,28 +23,6 @@ Vector3* overlayTex;
 float* overlay_alphaTex;
 int overlayTexW;
 int overlayTexH;
-
-template <typename T>
-T BilinearSample(T* tex, float x, float y, int w, int h) {
-  // nearest neighbor version
-  // return tex[int(y) * w + int(x)];
-
-  // actual bilinear version
-  int intX1 = int(floor(x));
-  int intY1 = int(floor(y));
-  int intX2 = (int(floor(x)) + 1) % w;
-  int intY2 = (int(floor(y)) + 1) % h;
-  T x1y1 = tex[intY1 * w + intX1];
-  T x2y1 = tex[intY1 * w + intX2];
-  T x1y2 = tex[intY2 * w + intX1];
-  T x2y2 = tex[intY2 * w + intX2];
-  float xBias = x - intX1;
-  float yBias = y - intY1;
-  T result = (x1y1 * (1.0f - xBias) + x2y1 * xBias) * (1.0f - yBias) +
-             (x1y2 * (1.0f - xBias) + x2y2 * xBias) * yBias;
-
-  return result;
-}
 
 Uint32 GetPitchDiffuseColor(SDL_Surface* pitchSurf, float xCoord, float yCoord) {
   float texMultiplier = 0.3f;
@@ -65,7 +45,8 @@ Uint32 GetPitchDiffuseColor(SDL_Surface* pitchSurf, float xCoord, float yCoord) 
   seamlessX = std::fmod(seamlessX, seamlessTexW);
   seamlessY = std::fmod(seamlessY, seamlessTexH);
   // printf("%f, %f - ", seamlessX, seamlessY);
-  Vector3 tex = BilinearSample(seamlessTex, seamlessX, seamlessY, seamlessTexW, seamlessTexH);
+  Vector3 tex = pitchsampling::BilinearSample(
+      seamlessTex, seamlessX, seamlessY, seamlessTexW, seamlessTexH, true);
   r = r * (1.0f - texMultiplier) + tex.coords[0] * texMultiplier;
   g = g * (1.0f - texMultiplier) + tex.coords[1] * texMultiplier;
   b = b * (1.0f - texMultiplier) + tex.coords[2] * texMultiplier;
@@ -77,7 +58,8 @@ Uint32 GetPitchDiffuseColor(SDL_Surface* pitchSurf, float xCoord, float yCoord) 
   perlX = clamp(perlX + randomX * randomSpread, 0.0f, static_cast<float>(perlinTexW - 1));
   float randomY = fastrandom(-1, 1);
   perlY = clamp(perlY + randomY * randomSpread, 0.0f, static_cast<float>(perlinTexH - 1));
-  float perlinNoise = BilinearSample(perlinTex, perlX, perlY, perlinTexW, perlinTexH) - 0.5f;
+  float perlinNoise =
+      pitchsampling::BilinearSample(perlinTex, perlX, perlY, perlinTexW, perlinTexH) - 0.5f;
   float perlinNoiseR = perlinNoise;
   float perlinNoiseG = perlinNoise;
   float perlinNoiseB = perlinNoise;
@@ -113,9 +95,10 @@ Uint32 GetPitchDiffuseColor(SDL_Surface* pitchSurf, float xCoord, float yCoord) 
 
   float overlayX = ((xCoord / pitchFullHalfW) * 0.5f + 0.5f) * overlayTexW;
   float overlayY = ((yCoord / pitchFullHalfH) * 0.5f + 0.5f) * overlayTexH;
-  Vector3 overlay = BilinearSample(overlayTex, overlayX, overlayY, overlayTexW, overlayTexH);
+  Vector3 overlay =
+      pitchsampling::BilinearSample(overlayTex, overlayX, overlayY, overlayTexW, overlayTexH);
   float overlay_alpha =
-      BilinearSample(overlay_alphaTex, overlayX, overlayY, overlayTexW, overlayTexH);
+      pitchsampling::BilinearSample(overlay_alphaTex, overlayX, overlayY, overlayTexW, overlayTexH);
   r = clamp(r * (1.0f - overlay_alpha) + overlay.coords[0] * overlay_alpha, 0.0f, 255.0f);
   g = clamp(g * (1.0f - overlay_alpha) + overlay.coords[1] * overlay_alpha, 0.0f, 255.0f);
   b = clamp(b * (1.0f - overlay_alpha) + overlay.coords[2] * overlay_alpha, 0.0f, 255.0f);
@@ -136,7 +119,8 @@ inline Uint32 GetPitchSpecularColor(SDL_Surface* pitchSurf, float xCoord, float 
   perlX = clamp(perlX + randomX * randomSpread, 0.0f, static_cast<float>(perlinTexW - 1));
   float randomY = fastrandom(-1, 1);
   perlY = clamp(perlY + randomY * randomSpread, 0.0f, static_cast<float>(perlinTexH - 1));
-  float noise = base + BilinearSample(perlinTex, perlX, perlY, perlinTexW, perlinTexH) * noisefac;
+  float noise =
+      base + pitchsampling::BilinearSample(perlinTex, perlX, perlY, perlinTexW, perlinTexH) * noisefac;
 
   Uint32 color = SDL_MapRGB(pitchSurf->format, static_cast<Uint8>(noise), static_cast<Uint8>(noise),
                             static_cast<Uint8>(noise));
@@ -420,7 +404,7 @@ void CreateChunk(int i, int resX, int resY, int resSpecularX, int resSpecularY, 
   pitchDiffuseTex->resourceMutex.lock();
   pitchDiffuseTex->GetResource()->DeleteTexture();
   pitchDiffuseTex->GetResource()->CreateTexture(e_InternalPixelFormat_SRGB8, e_PixelFormat_RGB,
-                                                resX, resY, false, true, true, true);
+                                                resX, resY, false, false, true, true);
   pitchDiffuseTex->GetResource()->UpdateTexture(pitchDiffuseSurf, false, true);
   pitchDiffuseTex->resourceMutex.unlock();
   SDL_FreeSurface(pitchDiffuseSurf);
@@ -428,7 +412,7 @@ void CreateChunk(int i, int resX, int resY, int resSpecularX, int resSpecularY, 
   pitchSpecularTex->resourceMutex.lock();
   pitchSpecularTex->GetResource()->DeleteTexture();
   pitchSpecularTex->GetResource()->CreateTexture(e_InternalPixelFormat_RGB8, e_PixelFormat_RGB,
-                                                 resSpecularX, resSpecularY, false, true, true,
+                                                 resSpecularX, resSpecularY, false, false, true,
                                                  true);
   pitchSpecularTex->GetResource()->UpdateTexture(pitchSpecularSurf, false, true);
   pitchSpecularTex->resourceMutex.unlock();
@@ -437,7 +421,7 @@ void CreateChunk(int i, int resX, int resY, int resSpecularX, int resSpecularY, 
   pitchNormalTex->resourceMutex.lock();
   pitchNormalTex->GetResource()->DeleteTexture();
   pitchNormalTex->GetResource()->CreateTexture(e_InternalPixelFormat_RGB8, e_PixelFormat_RGB,
-                                               resNormalX, resNormalY, false, true, true, true);
+                                               resNormalX, resNormalY, false, false, true, true);
   pitchNormalTex->GetResource()->UpdateTexture(pitchNormalSurf, false, true);
   pitchNormalTex->resourceMutex.unlock();
   SDL_FreeSurface(pitchNormalSurf);
@@ -475,7 +459,7 @@ void GeneratePitch(int resX, int resY, int resSpecularX, int resSpecularY, int r
       Uint8 r, g, b, a;
       SDL_GetRGBA(pixel, &overlayFormat, &r, &g, &b, &a);
       overlayTex[y * overlay->w + x] = Vector3(r, g, b);
-      overlay_alphaTex[y * overlay->w + x] = a / 256.0f;
+      overlay_alphaTex[y * overlay->w + x] = a / 255.0f;
       // printf("alpha: %f\n", overlay_alphaTex[y * overlay->w + x]);
     }
   }

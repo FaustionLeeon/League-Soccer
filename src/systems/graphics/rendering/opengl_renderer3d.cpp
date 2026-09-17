@@ -21,6 +21,7 @@
 #endif
 
 #include <cmath>
+#include <filesystem>
 #include <vector>
 
 #include <SDL2/SDL.h>
@@ -75,6 +76,8 @@ SDL_Surface* CreateFallbackNoiseSurface() {
 
 OpenGLRenderer3D::OpenGLRenderer3D()
     : context(nullptr), window(nullptr), contextIsActive(true), noiseTexID(-1) {
+  const char* capturePath = SDL_getenv("GF_CAPTURE_DIRECTORY");
+  if (capturePath) captureDirectory = capturePath;
   FOV = 45;
   overallBrightness = 128;
 
@@ -88,7 +91,63 @@ OpenGLRenderer3D::OpenGLRenderer3D()
 OpenGLRenderer3D::~OpenGLRenderer3D(){};
 
 void OpenGLRenderer3D::SwapBuffers() {
+  CaptureFrame();
   SDL_GL_SwapWindow(window);
+}
+
+void OpenGLRenderer3D::CaptureFrame() {
+  // Bound disk use and avoid per-frame GPU stalls. Captures include the HUD.
+  if (captureDirectory.empty() || captureCount >= 60) return;
+  const Uint32 now = SDL_GetTicks();
+  if (captureCount != 0 && now - lastCaptureTime < 2000) return;
+  lastCaptureTime = now;
+
+  int width = 0, height = 0;
+  SDL_GL_GetDrawableSize(window, &width, &height);
+  if (width <= 0 || height <= 0) return;
+  std::error_code error;
+  std::filesystem::create_directories(captureDirectory, error);
+  if (error) {
+    Log(e_Warning, "OpenGLRenderer3D", "CaptureFrame", error.message());
+    captureDirectory.clear();
+    return;
+  }
+  SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 24,
+                                                       SDL_PIXELFORMAT_RGB24);
+  if (!surface) {
+    Log(e_Warning, "OpenGLRenderer3D", "CaptureFrame", SDL_GetError());
+    captureDirectory.clear();
+    return;
+  }
+
+  GLint framebuffer, alignment, readBuffer;
+  mapping.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &framebuffer);
+  mapping.glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+  mapping.glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+  mapping.glGetIntegerv(GL_READ_BUFFER, &readBuffer);
+  mapping.glReadBuffer(GL_BACK);
+  mapping.glPixelStorei(GL_PACK_ALIGNMENT, 4);
+  mapping.glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, surface->pixels);
+  mapping.glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+  mapping.glReadBuffer(readBuffer);
+  mapping.glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+
+  // OpenGL's origin is bottom-left; image rows start at the top.
+  auto* pixels = static_cast<Uint8*>(surface->pixels);
+  for (int y = 0; y < height / 2; ++y) {
+    Uint8* top = pixels + y * surface->pitch;
+    Uint8* bottom = pixels + (height - 1 - y) * surface->pitch;
+    for (int x = 0; x < surface->pitch; ++x) std::swap(top[x], bottom[x]);
+  }
+  const std::string filename = (std::filesystem::path(captureDirectory) /
+      ("frame-" + int_to_str(captureCount++) + ".png")).string();
+  if (IMG_SavePNG(surface, filename.c_str()) != 0) {
+    Log(e_Warning, "OpenGLRenderer3D", "CaptureFrame", IMG_GetError());
+    captureDirectory.clear();
+  } else {
+    Log(e_Notice, "OpenGLRenderer3D", "CaptureFrame", filename);
+  }
+  SDL_FreeSurface(surface);
 }
 
 void OpenGLRenderer3D::SetMatrix(const std::string& shaderUniformName, const Matrix4& matrix) {

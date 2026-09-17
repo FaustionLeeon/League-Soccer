@@ -316,8 +316,11 @@ void ASELoader::BuildTriangleMesh(const s_tree* data,
             "tvertex index larger than numtvertex! Loader corrupt?");
       tvertex_cache[atoi(entry->values.at(0).c_str())].coords[0] =
           atof(entry->values.at(1).c_str());
+      // Flip V into [0, 1] for unique textures. Negating V alone only works
+      // with GL_REPEAT and stretches an entire clamped pitch to its edge row.
+      // The integer offset preserves the appearance of repeating materials.
       tvertex_cache[atoi(entry->values.at(0).c_str())].coords[1] =
-          -atof(entry->values.at(2).c_str());
+          1.0f - atof(entry->values.at(2).c_str());
       tvertex_cache[atoi(entry->values.at(0).c_str())].coords[2] =
           atof(entry->values.at(3).c_str());
     }

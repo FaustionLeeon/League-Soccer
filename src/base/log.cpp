@@ -50,6 +50,7 @@ void Log(e_LogType logType, const std::string& className, const std::string& met
   {
     std::lock_guard<std::mutex> lock(mutex);
     printf("%s", bla);
+    fflush(stdout);
     if (logFile.is_open()) {
       logFile << bla;
       logFile.flush();

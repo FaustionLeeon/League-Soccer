@@ -267,4 +267,272 @@ TEST(MatchIntegrationTest, FullMatchSimulationSingleTick) {
   EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
 }
 
+// ---------------------------------------------------------------------------
+// Stoppage / injury time simulation
+// ---------------------------------------------------------------------------
+
+TEST(MatchIntegrationTest, StoppageTimeExtendsActiveHalf) {
+  MatchClock clock;
+  clock.startMatch();
+
+  // Set 3 minutes of injury time (180,000 ms)
+  clock.setStoppageTime(3UL * 60UL * 1000UL);
+
+  // At 45:00 exact, the half should NOT have ended yet because of stoppage time
+  advanceClock(clock, kHalfDuration_ms);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_1stHalf);
+  EXPECT_EQ(clock.halfTime_ms, kHalfDuration_ms);
+
+  // Goal scored in 1st minute of added time
+  clock.addGoal(0);
+  EXPECT_EQ(clock.goals[0], 1);
+
+  // Play remaining 3 minutes of stoppage time
+  advanceClock(clock, 3UL * 60UL * 1000UL);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_HalfTime);
+  EXPECT_EQ(clock.stoppageTime_ms, 0UL);  // Resets after period transition
+}
+
+// ---------------------------------------------------------------------------
+// Extra time and penalty shootout simulation
+// ---------------------------------------------------------------------------
+
+TEST(MatchIntegrationTest, ExtraTimeTransitionsAndTotalDuration) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.startMatch();
+
+  // 1-1 at 90 minutes
+  clock.addGoal(0);
+  advanceClock(clock, kHalfDuration_ms);
+  clock.startSecondHalf();
+  clock.addGoal(1);
+  advanceClock(clock, kHalfDuration_ms);
+
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
+  EXPECT_TRUE(clock.isTied());
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms);
+
+  // Kick off extra time
+  clock.startExtraTime();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_1stExtraTime);
+
+  // 1st extra time (15 mins)
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_ExtraTimeBreak);
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms + kExtraTimeHalfDuration_ms);
+
+  // 2nd extra time (15 mins)
+  clock.startSecondExtraTime();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_2ndExtraTime);
+
+  // Goal in 2nd extra time for team 0
+  clock.addGoal(0);
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+
+  // Not tied, so concludes at Final
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Final);
+  EXPECT_FALSE(clock.isTied());
+  EXPECT_EQ(clock.goals[0], 2);
+  EXPECT_EQ(clock.goals[1], 1);
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms + 2UL * kExtraTimeHalfDuration_ms);
+}
+
+TEST(MatchIntegrationTest, ExtraTimeTieTransitionsToPenaltyShootout) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.allowPenalties = true;
+  clock.startMatch();
+
+  // 0-0 through 90 minutes
+  advanceClock(clock, kHalfDuration_ms);
+  clock.startSecondHalf();
+  advanceClock(clock, kHalfDuration_ms);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
+
+  // Extra time 1st & 2nd periods remain 0-0
+  clock.startExtraTime();
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_ExtraTimeBreak);
+
+  clock.startSecondExtraTime();
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+
+  // Since still tied and allowPenalties is true, transitions to Penalties
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Penalties);
+  EXPECT_TRUE(clock.isTied());
+
+  // Simulate shootout: 5-4
+  for (int i = 0; i < 5; ++i) clock.addPenaltyGoal(0);
+  for (int i = 0; i < 4; ++i) clock.addPenaltyGoal(1);
+
+  EXPECT_EQ(clock.penaltyGoals[0], 5);
+  EXPECT_EQ(clock.penaltyGoals[1], 4);
+  EXPECT_FALSE(clock.isPenaltyTied());
+
+  clock.concludePenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Final);
+}
+
+TEST(MatchIntegrationTest, ClockDoesNotAdvanceDuringExtraTimeBreakOrPenalties) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.allowPenalties = true;
+  clock.startMatch();
+
+  advanceClock(clock, kHalfDuration_ms);
+  clock.startSecondHalf();
+  advanceClock(clock, kHalfDuration_ms);
+  clock.startExtraTime();
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_ExtraTimeBreak);
+  EXPECT_FALSE(clock.tick(5000));
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_ExtraTimeBreak);
+
+  clock.startSecondExtraTime();
+  advanceClock(clock, kExtraTimeHalfDuration_ms);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Penalties);
+
+  EXPECT_FALSE(clock.tick(5000));
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Penalties);
+}
+
+TEST(MatchIntegrationTest, NoElapsedTimeBeforeKickoffAndKickoffCannotResetPlay) {
+  MatchClock clock;
+  EXPECT_EQ(clock.totalElapsed_ms(), 0UL);
+  clock.startMatch();
+  clock.tick(12000);
+  clock.startMatch();
+  EXPECT_EQ(clock.totalElapsed_ms(), 12000UL);
+}
+
+TEST(MatchIntegrationTest, StoppageTimeAccumulatesAcrossAllPeriods) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.startMatch();
+  clock.setStoppageTime(180000);
+  clock.tick(kHalfDuration_ms + 180000);
+  clock.startSecondHalf();
+  clock.setStoppageTime(120000);
+  EXPECT_FALSE(clock.tick(kHalfDuration_ms + 120000));
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms + 300000);
+  clock.startExtraTime();
+  clock.setStoppageTime(60000);
+  clock.tick(kExtraTimeHalfDuration_ms + 60000);
+  clock.startSecondExtraTime();
+  clock.setStoppageTime(30000);
+  EXPECT_TRUE(clock.tick(kExtraTimeHalfDuration_ms + 30000));
+  EXPECT_EQ(clock.totalElapsed_ms(),
+            2UL * kHalfDuration_ms + 2UL * kExtraTimeHalfDuration_ms + 390000);
+}
+
+TEST(MatchIntegrationTest, KnockoutStagesCannotInterruptPlayOrSkipExtraTime) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.allowPenalties = true;
+  clock.startMatch();
+  clock.tick(kHalfDuration_ms);
+  clock.startSecondHalf();
+  clock.startExtraTime();
+  clock.startPenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_2ndHalf);
+  EXPECT_FALSE(clock.tick(kHalfDuration_ms));
+  clock.startPenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
+  clock.startExtraTime();
+  clock.tick(kExtraTimeHalfDuration_ms);
+  clock.startSecondExtraTime();
+  clock.startPenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_2ndExtraTime);
+  EXPECT_FALSE(clock.tick(kExtraTimeHalfDuration_ms));
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Penalties);
+}
+
+TEST(MatchIntegrationTest, RegulationWinnerDoesNotEnterKnockoutStages) {
+  MatchClock clock;
+  clock.allowExtraTime = true;
+  clock.allowPenalties = true;
+  clock.startMatch();
+  clock.addGoal(0);
+  clock.tick(kHalfDuration_ms);
+  clock.startSecondHalf();
+  EXPECT_TRUE(clock.tick(kHalfDuration_ms));
+  clock.startExtraTime();
+  clock.startPenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
+  clock.allowExtraTime = false;
+  clock.startPenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_FullTime);
+}
+
+TEST(MatchIntegrationTest, DirectShootoutKeepsRegulationTimeAndCannotReopenFinal) {
+  MatchClock clock;
+  clock.allowPenalties = true;
+  clock.addPenaltyGoal(0);
+  EXPECT_EQ(clock.penaltyGoals[0], 0);
+  clock.startMatch();
+  clock.tick(kHalfDuration_ms);
+  clock.startSecondHalf();
+  EXPECT_FALSE(clock.tick(kHalfDuration_ms));
+  clock.startPenalties();
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms);
+  clock.concludePenalties();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Penalties);
+  clock.addPenaltyGoal(0);
+  clock.concludePenalties();
+  clock.startPenalties();
+  clock.startMatch();
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_Final);
+  EXPECT_EQ(clock.totalElapsed_ms(), 2UL * kHalfDuration_ms);
+  clock.addPenaltyGoal(1);
+  EXPECT_EQ(clock.penaltyGoals[1], 0);
+}
+
+TEST(MatchIntegrationTest, LargeClockValuesDoNotWrap) {
+  MatchClock clock;
+  const auto maximum = (std::numeric_limits<unsigned long>::max)();
+  clock.startMatch();
+  clock.tick(1000);
+  clock.setStoppageTime(maximum);
+  clock.tick(maximum);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_HalfTime);
+  EXPECT_EQ(clock.totalElapsed_ms(), maximum);
+  clock.startSecondHalf();
+  clock.tick(kHalfDuration_ms);
+  EXPECT_EQ(clock.totalElapsed_ms(), maximum);
+}
+
+TEST(MatchIntegrationTest, GoalsOnlyCountDuringLivePeriods) {
+  MatchClock clock;
+  clock.addGoal(0);
+  EXPECT_EQ(clock.goals[0], 0);
+  clock.startMatch();
+  clock.addGoal(0);
+  clock.addGoal(-1);
+  clock.addGoal(2);
+  clock.tick(kHalfDuration_ms);
+  clock.addGoal(1);
+  EXPECT_EQ(clock.goals[1], 0);
+  clock.startSecondHalf();
+  clock.addGoal(1);
+  clock.tick(kHalfDuration_ms);
+  clock.addGoal(0);
+  EXPECT_EQ(clock.goals[0], 1);
+  EXPECT_EQ(clock.goals[1], 1);
+}
+
+TEST(MatchIntegrationTest, ReducingStoppageTimeNeverRewindsElapsedPlay) {
+  MatchClock clock;
+  clock.startMatch();
+  clock.setStoppageTime(180000);
+  clock.tick(kHalfDuration_ms + 120000);
+  clock.setStoppageTime(60000);
+  clock.tick(1000);
+  EXPECT_EQ(clock.phase, e_MatchPhaseSimple_HalfTime);
+  EXPECT_EQ(clock.totalElapsed_ms(), kHalfDuration_ms + 120000);
+  clock.startSecondHalf();
+  EXPECT_EQ(clock.totalElapsed_ms(), kHalfDuration_ms + 120000);
+}
+
 }  // namespace
