@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "career_role.hpp"
+
 enum class ClubRole { STAR, STARTER, ROTATION, PROSPECT, BENCH, RESERVE };
 enum class MoraleState { EXCELLENT, GOOD, NEUTRAL, LOW, UNHAPPY };
 enum class InjuryStatus { HEALTHY, DAY_TO_DAY, OUT_SHORT_TERM, OUT_LONG_TERM };
@@ -25,7 +27,6 @@ enum class InboxItemType {
   DERBY_HYPE
 };
 
-enum class CareerMode { PLAYER, MANAGER, GM, COACH, OWNER };
 
 enum class BidStatus { PENDING, ACCEPTED, REJECTED, WITHDRAWN };
 
@@ -158,6 +159,7 @@ struct FixtureResult {
   int homeGoals = 0;
   int awayGoals = 0;
   bool played = false;
+  int season = 0;  // Zero denotes an unscoped legacy fixture.
 };
 
 struct SeasonState {
@@ -344,7 +346,8 @@ struct CustomLeagueConfig {
 
 struct CareerSave {
   int saveID = 0;
-  CareerMode mode = CareerMode::MANAGER;
+  CareerMode mode = CareerMode::OWNER_GM;
+  bool handsOnManagement = true;
   std::string name;
   std::string managerName;
   ClubIdentity club;
@@ -430,3 +433,17 @@ private:
 // Generates the classic PES 5/6 Master League default cult hero squad (Castolo, Minanda, Espimas,
 // Ivarov, etc.)
 SquadState CreatePESDefaultMasterLeagueSquad(int teamID = 0);
+
+// User-facing responsibilities. Simulation modules remain free to run AI work.
+inline bool CanManageClub(const CareerSave& save) {
+  return save.mode == CareerMode::OWNER_GM;
+}
+inline bool CanManageTeam(const CareerSave& save) {
+  return save.mode == CareerMode::COACH ||
+         (CanManageClub(save) && save.handsOnManagement);
+}
+inline bool CanPlayCareerMatch(const CareerSave& save) {
+  return save.mode == CareerMode::PLAYER || CanManageTeam(save);
+}
+
+enum class CareerActionSource { USER, AI };

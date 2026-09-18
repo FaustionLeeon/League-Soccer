@@ -19,32 +19,6 @@ using namespace blunted;
 // Owner Mode Pages
 // ---------------------------------------------------------------------------
 
-// Owner-specific hub replaces the standard hub when mode == "owner"
-class OwnerHubPage : public Gui2Page {
-public:
-  OwnerHubPage(Gui2WindowManager* windowManager, const Gui2PageData& pageData);
-  virtual ~OwnerHubPage();
-
-protected:
-  void GoStadium();
-  void GoFinances();
-  void GoStaffManagement();
-  void GoSponsors();
-  void GoBoardRoom();
-  void GoTransferMarket();
-  void GoSquad();
-  void GoTraining();
-  void GoStrategy();
-  void GoFreeAgency();
-  void GoYouthAcademy();
-  void GoPressConference();
-  void GoLeagueExpansion();
-  void GoCustomLeague();
-  void GoStandings();
-  void GoSeason();
-  void GoMatchday();
-};
-
 // Stadium management
 class OwnerStadiumPage : public Gui2Page {
 public:

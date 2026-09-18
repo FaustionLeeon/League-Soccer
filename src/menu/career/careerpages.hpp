@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "../../data/careerdata.hpp"
+#include "career_hub_model.hpp"
 #include "utils/gui2/page.hpp"
 #include "utils/gui2/widgets/button.hpp"
 #include "utils/gui2/widgets/caption.hpp"
@@ -11,11 +12,12 @@
 #include "utils/gui2/widgets/frame.hpp"
 #include "utils/gui2/widgets/grid.hpp"
 #include "utils/gui2/widgets/pulldown.hpp"
+#include "utils/gui2/widgets/text.hpp"
 #include "utils/gui2/windowmanager.hpp"
 
 using namespace blunted;
 
-// Mode selection: myCoach / myGM / Player / Manager / Owner Career
+// Mode selection: Owner/GM / Coach / Player
 class CareerMenuPage : public Gui2Page {
 public:
   CareerMenuPage(Gui2WindowManager* windowManager, const Gui2PageData& pageData);
@@ -24,9 +26,7 @@ public:
 
 protected:
   void GoMyCoach();
-  void GoMyGM();
   void GoPlayerCareer();
-  void GoManagerCareer();
   void GoOwnerCareer();
   void GoContinueCareer();
 
@@ -59,19 +59,16 @@ public:
   CareerHubPage(Gui2WindowManager* windowManager, const Gui2PageData& pageData);
   virtual ~CareerHubPage();
 
-protected:
-  void GoStandings();
-  void GoTransferMarket();
-  void GoSquad();
-  void GoPressConference();
-  void GoLeagueExpansion();
-  void GoCustomLeague();
-  void GoFreeAgency();
-  void GoTraining();
-  void GoStrategy();
-  void GoYouthAcademy();
-  void GoSeason();
+private:
+  CareerHubSection m_section = CareerHubSection::OVERVIEW;
+  Gui2Caption* m_feedback = nullptr;
+  Gui2Grid* m_messages = nullptr;
+  Gui2Text* m_unreadSummary = nullptr;
+  void OpenSection(CareerHubSection section);
+  void OpenTool(CareerHubAction action);
+  void OpenInboxItem(size_t index);
   void GoMatchday();
+
 };
 
 // Transfer market browser
@@ -194,6 +191,7 @@ protected:
   void ReleasePlayer(const std::string& playerName);
   void MotivatePlayer(const std::string& playerName);
   void DrillPlayer(const std::string& playerName);
+  Gui2Grid* m_rosterGrid = nullptr;
 };
 
 // Season End / Advance
@@ -201,6 +199,9 @@ class CareerSeasonPage : public Gui2Page {
 public:
   CareerSeasonPage(Gui2WindowManager* windowManager, const Gui2PageData& pageData);
   virtual ~CareerSeasonPage();
+
+private:
+  int m_season = 0;
 
 protected:
   void AdvanceSeason();
@@ -222,7 +223,6 @@ protected:
   void SimulateAll();
   void PlayMatch();
   void PlayMatchFixture(int fixtureIndex);
-  void Process3DMatchResult(int homeGoals, int awayGoals);
   void GoBack();
 
   Gui2Frame* frame;
@@ -234,6 +234,7 @@ protected:
   std::vector<bool> m_isHome;
   std::vector<SimulatedMatch> m_results;
   int m_week;
+  int m_season = 0;
   int m_matchesPlayed;
   int m_wins;
   int m_draws;

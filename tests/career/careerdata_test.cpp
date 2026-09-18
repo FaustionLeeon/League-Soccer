@@ -14,7 +14,7 @@ namespace {
 // ---------------------------------------------------------------------------
 static int MakeSave(CareerSaveRegistry& db) {
   CareerSave s;
-  s.mode = CareerMode::MANAGER;
+  s.mode = CareerMode::OWNER_GM;
   s.club.clubID = 1;
   s.reputation = 50;
   return db.CreateSave(s);
@@ -170,19 +170,19 @@ TEST(CareerDataTest, SetCustomLeagueNoopForUnknownSave) {
 }
 
 // ---------------------------------------------------------------------------
-// Owner mode – CareerMode::OWNER enum support
+// Owner mode – CareerMode::OWNER_GM enum support
 // ---------------------------------------------------------------------------
 
 TEST(CareerDataTest, OwnerModeEnumExists) {
   CareerSave s;
-  s.mode = CareerMode::OWNER;
-  EXPECT_EQ(s.mode, CareerMode::OWNER);
+  s.mode = CareerMode::OWNER_GM;
+  EXPECT_EQ(s.mode, CareerMode::OWNER_GM);
 }
 
 TEST(CareerDataTest, OwnerModeCreateSaveAndRetrieve) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   s.controlledEntityID = 5;
   // CreateSave derives the top-level reputation/budget from these canonical
   // sub-structs, so populate those rather than the derived fields.
@@ -192,7 +192,7 @@ TEST(CareerDataTest, OwnerModeCreateSaveAndRetrieve) {
 
   CareerSave* retrieved = db.GetSave(id);
   ASSERT_NE(retrieved, nullptr);
-  EXPECT_EQ(retrieved->mode, CareerMode::OWNER);
+  EXPECT_EQ(retrieved->mode, CareerMode::OWNER_GM);
   EXPECT_EQ(retrieved->budget, 60000000);
   EXPECT_EQ(retrieved->reputation, 60);
 }
@@ -200,7 +200,7 @@ TEST(CareerDataTest, OwnerModeCreateSaveAndRetrieve) {
 TEST(CareerDataTest, OwnerReputationClampingWorks) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   s.club.reputation = 90;
   int id = db.CreateSave(s);
 
@@ -214,7 +214,7 @@ TEST(CareerDataTest, OwnerReputationClampingWorks) {
 TEST(CareerDataTest, OwnerModeSeasonAdvances) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   s.currentSeason = 1;
   int id = db.CreateSave(s);
 
@@ -228,7 +228,7 @@ TEST(CareerDataTest, OwnerModeSeasonAdvances) {
 TEST(CareerDataTest, OwnerModeLeagueExpansion) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   int id = db.CreateSave(s);
 
   LeagueExpansionSettings settings;
@@ -247,7 +247,7 @@ TEST(CareerDataTest, OwnerModeLeagueExpansion) {
 TEST(CareerDataTest, OwnerModeCustomLeague) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   int id = db.CreateSave(s);
 
   CustomLeagueConfig cfg;
@@ -265,7 +265,7 @@ TEST(CareerDataTest, OwnerModeCustomLeague) {
 TEST(CareerDataTest, OwnerDeleteSave) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   int id = db.CreateSave(s);
 
   ASSERT_NE(db.GetSave(id), nullptr);
@@ -276,7 +276,7 @@ TEST(CareerDataTest, OwnerDeleteSave) {
 TEST(CareerDataTest, OwnerRecordSeason) {
   CareerSaveRegistry db;
   CareerSave s;
-  s.mode = CareerMode::OWNER;
+  s.mode = CareerMode::OWNER_GM;
   int id = db.CreateSave(s);
 
   SeasonRecord rec;

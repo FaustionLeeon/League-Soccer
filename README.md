@@ -57,7 +57,7 @@ stripped out — the menus, audio, full gameplay, and beyond.
   with gamepad calibration and mapping.
 - **🧠 Real football AI** — zone pressure and counter-attack tactics, per-player
   roles, velocity/stamina state machine, and dynamic team AI controllers.
-- **🛠️ Deep management modes** — run a club as Owner, GM, or Coach across
+- **🛠️ Deep management modes** — run a club as Owner/GM or Coach across
   transfer markets, contracts, drafts, scouting, youth academies, staff,
   facilities, and press conferences.
 - **🔁 Replay system** — record and play back any match.
@@ -74,10 +74,15 @@ stripped out — the menus, audio, full gameplay, and beyond.
 |------|-------------|
 | **Quick Match** | Pick two teams and play a full match now. |
 | **League** | Compete across a season — calendars, standings, inbox, transfers, contracts, and club management. |
-| **Career (Manager)** | Choose a squad, handle tactics and lineups, negotiate transfers and contracts, manage finances, the board, and the press. |
-| **Career (Owner)** | The full club vision — stadium, finances, staff hiring, sponsors, and the board room. |
-| **myCoach / myGM / Player Career** | Build a coach, run the front office, or drive a single player toward stardom. |
+| **Career (Owner/GM)** | Run the club: recruitment, contracts, finances, staff, sponsors, and stadium upgrades, with optional hands-on team control. |
+| **Career (Coach)** | Lead the team through tactics, lineups, training, and matchday decisions. |
+| **Career (Player)** | Develop a footballer through individual training; dedicated single-player match control is still in development. |
 | **Custom League** | Define your own teams, divisions, and rules; expand or contract the league structure. |
+
+All three careers share Overview, Team, Competitions, Inbox, and Save navigation.
+The role workspace is Club Office for Owner/GM, Coaching for Coach, and My Pro
+for Player. Tools follow your responsibilities; My Pro shows personal development,
+contract details, and transfer requests.
 
 Career progress persists across seasons — promote youth talent from the
 academy, scout hidden gems, trade in the transfer market and draft, negotiate

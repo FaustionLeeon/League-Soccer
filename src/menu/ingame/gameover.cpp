@@ -322,6 +322,11 @@ void GameOverPage::GoMainMenu() {
     if (matchData) {
       resumeCareer = CareerDatabase::GetInstance().ConsumePlayedFixture(matchData->GetGoalCount(0),
                                                                         matchData->GetGoalCount(1));
+      if (!resumeCareer) {
+        buttonOkay->SetCaption(TR("career_save_retry"));
+        buttonOkay->SetFocus();
+        return;  // Keep MatchData alive so retry submits the same finished score.
+      }
     } else {
       CareerDatabase::GetInstance().ClearPendingFixture();
     }

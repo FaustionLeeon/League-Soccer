@@ -308,7 +308,13 @@ void MainMenuPage::Process() {
       GetMenuTask()->QuitGame();
       return;
     }
-    if (auditRoute == "career_training") {
+    if (auditRoute == "career_season_pending" || auditRoute == "career_tactics" || auditRoute == "career_tactics_delegated" ||
+        auditRoute == "career_press" || auditRoute == "career_roster" || auditRoute == "career_roster_player" ||
+        auditRoute == "career_player_training" || auditRoute == "career_player_missing" ||
+        auditRoute == "career_owner_legacy" || auditRoute == "career_owner_delegated" ||
+        auditRoute == "career_training" || auditRoute == "career_owner_gm" ||
+        auditRoute == "career_coach" || auditRoute == "career_player" ||
+        auditRoute == "career_season" || auditRoute == "career_matchday") {
       const std::string directory = GetConfiguration()->Get("menu_smoke_career_save_directory", "");
       if (directory.empty() || !CareerDatabase::GetInstance().Initialize(directory) ||
           !CareerDatabase::GetInstance().LoadCareerSave("Training Audit")) {
@@ -318,6 +324,8 @@ void MainMenuPage::Process() {
       }
     }
     Properties properties;
+    properties.Set("careerSection", GetConfiguration()->Get("menu_smoke_career_section", "0"));
+    properties.Set("focusCareerTab", "true");
     properties.Set("controllerID", -1);  // Exercise the missing-device fallback safely.
     CreatePage(target, properties);
     return;

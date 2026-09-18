@@ -1,3 +1,4 @@
+#include "career_navigation.hpp"
 #include "career_save_page.hpp"
 
 #include "../pagefactory.hpp"
@@ -10,19 +11,7 @@ namespace blunted {
 namespace {
 
 std::string ModeToString(CareerMode mode) {
-  switch (mode) {
-    case CareerMode::PLAYER:
-      return TR("career_mode_player");
-    case CareerMode::COACH:
-      return TR("career_mode_coach");
-    case CareerMode::GM:
-      return TR("career_mode_gm");
-    case CareerMode::OWNER:
-      return TR("career_mode_owner");
-    case CareerMode::MANAGER:
-    default:
-      return TR("career_mode_manager");
-  }
+  return TR(CareerModeLabelKey(mode));
 }
 
 }  // namespace
@@ -78,8 +67,7 @@ CareerSavePage::CareerSavePage(Gui2WindowManager* windowManager, const Gui2PageD
       if (CareerDatabase::GetInstance().LoadCareerSlot(-1)) {
         SetFeedback(TR("career_load_autosave_success"));
         CareerSave* save = CareerDatabase::GetInstance().GetActiveSave();
-        const int hubPage = (save && save->mode == CareerMode::OWNER) ? (int)e_PageID_OwnerHub
-                                                                      : (int)e_PageID_CareerHub;
+        const int hubPage = CareerHubPageID(save);
         Properties props;
         CreatePage(hubPage, props);
       } else {
@@ -243,8 +231,7 @@ void CareerSavePage::PerformLoadSlot(int slotIndex) {
   if (CareerDatabase::GetInstance().LoadCareerSlot(slotIndex)) {
     SetFeedback(TRF("career_load_slot_success", {std::to_string(slotIndex)}));
     CareerSave* save = CareerDatabase::GetInstance().GetActiveSave();
-    const int hubPage = (save && save->mode == CareerMode::OWNER) ? (int)e_PageID_OwnerHub
-                                                                  : (int)e_PageID_CareerHub;
+    const int hubPage = CareerHubPageID(save);
     Properties props;
     CreatePage(hubPage, props);
   } else {
@@ -279,8 +266,7 @@ void CareerSavePage::GoBack() {
     CreatePage(e_PageID_CareerMenu);
   } else {
     CareerSave* save = CareerDatabase::GetInstance().GetActiveSave();
-    const int hubPage = (save && save->mode == CareerMode::OWNER) ? (int)e_PageID_OwnerHub
-                                                                  : (int)e_PageID_CareerHub;
+    const int hubPage = CareerHubPageID(save);
     Properties props;
     CreatePage(hubPage, props);
   }

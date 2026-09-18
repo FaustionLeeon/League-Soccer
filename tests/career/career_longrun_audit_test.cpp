@@ -152,15 +152,7 @@ void RunPersonaSeasonActions(CareerDatabase& db, const PersonaTier& persona, int
 void CloseSeasonLikeUi(CareerDatabase& db, const PersonaTier& persona) {
   CareerSave* save = db.GetActiveSave();
   ASSERT_NE(save, nullptr);
-  if (persona.ownerLoop) {
-    db.ProcessSeasonFinances();
-  }
-  db.AdvanceSeason();
-  if (persona.ownerLoop) {
-    db.EvaluateBoardObjectives();
-    db.GenerateSponsorOffers();
-    db.GenerateBoardObjectives();
-  }
+  ASSERT_TRUE(db.AdvanceSeason());
 }
 
 TEST(CareerLongRunAudit, EstimateLeaguePositionBands) {
@@ -181,7 +173,7 @@ TEST(CareerLongRunAudit, ApplyMatchResultDrawIsReputationNeutral) {
   SeedRoster(save, 70, 11);
   const int repBefore = save->reputation;
   const int confBefore = save->boardConfidence;
-  db.ApplyMatchResult(1, 1, "Rival FC");
+  ASSERT_TRUE(db.CompleteFixture(1, 1, true, 1000, 2, "Rival FC", 1, 1));
   EXPECT_EQ(save->seasonDraws, 1);
   EXPECT_EQ(save->seasonWins, 0);
   EXPECT_EQ(save->seasonLosses, 0);
@@ -253,7 +245,9 @@ TEST(CareerLongRunAudit, TwelveSeasonsFourPersonaTiers) {
         EXPECT_LE(result.homeGoals, 9);
         EXPECT_GE(result.awayGoals, 0);
         EXPECT_LE(result.awayGoals, 7);
-        db.ApplyMatchResult(result.homeGoals, result.awayGoals, opponent, result.scorers);
+        ASSERT_TRUE(db.CompleteFixture(save->season.currentSeason, save->season.currentWeek,
+                                      isHome, 1000, match + 1, opponent,
+                                      result.homeGoals, result.awayGoals, result.scorers));
       }
 
       save = db.GetActiveSave();

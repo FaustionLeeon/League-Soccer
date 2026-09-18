@@ -3,6 +3,7 @@
 #include <string>
 
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 
 #include "menu/career/career_database.hpp"
 
@@ -49,7 +50,7 @@ TEST(CareerSaveLoadTest, CorruptNumericFieldsDoNotThrow) {
   const std::string contents =
       "# Career Save: My Club\n"
       "name=My Club\n"
-      "mode=notanumber\n"
+      "mode=1\n"
       "clubID=12\n"
       "reputation=abc\n"
       "boardConfidence=\n"
@@ -370,3 +371,147 @@ TEST(CareerProgressionSaveTest, InvalidSavedPlanDefaultsToBalanced) {
   ASSERT_TRUE(db.LoadCareerSave("Progress Club"));
   EXPECT_EQ(db.GetActiveSave()->trainingPlan, CareerTrainingPlan::BALANCED);
 }
+
+namespace {
+
+// Exercise the real text and SQLite readers rather than only the role decoder.
+TEST(CareerRoleMigrationTest, AllFiveLegacyRolesSurviveBothFormatsAndRepeatedSaves) {
+  const CareerMode expected[] = {CareerMode::PLAYER, CareerMode::OWNER_GM,
+                                CareerMode::OWNER_GM, CareerMode::COACH,
+                                CareerMode::OWNER_GM};
+  for (int oldRole = 0; oldRole < 5; ++oldRole) {
+    for (bool sqlite : {false, true}) {
+      SCOPED_TRACE(std::to_string(oldRole) + (sqlite ? " sqlite" : " text"));
+      const fs::path dir = UniqueTempDir(std::to_string(oldRole) + (sqlite ? "db" : "text"));
+      fs::remove_all(dir);
+      fs::create_directories(dir);
+      const auto path = (dir / "legacy.save").string();
+      const std::string payload = "name=Preserved Club\nmode=" + std::to_string(oldRole) +
+          "\nmanagerName=Alex\nclubID=12\ntransferBudget=1234567\nwageBudget=76543\n"
+          "season=7\nweek=19\ncontrolledEntityID=901\ntrainingPoints=9\n"
+          "player.0=Alex|CF|24|76|90|100000|5000\n"
+          "fixture.0=1800|12|8|2|1|1\n"
+          "history.0=6|12|20|10|8|60|30|2|0\n";
+      if (sqlite) {
+        sqlite3* db = nullptr;
+        ASSERT_EQ(sqlite3_open(path.c_str(), &db), SQLITE_OK);
+        const std::string sql =
+            "CREATE TABLE career_meta(schema_version INTEGER,name TEXT,mode INTEGER,season INTEGER);"
+            "INSERT INTO career_meta VALUES(1,'Preserved Club'," + std::to_string(oldRole) + ",7);"
+            "CREATE TABLE career_payload(id INTEGER,data TEXT);";
+        ASSERT_EQ(sqlite3_exec(db, sql.c_str(), nullptr, nullptr, nullptr), SQLITE_OK);
+        sqlite3_stmt* stmt = nullptr;
+        ASSERT_EQ(sqlite3_prepare_v2(db, "INSERT INTO career_payload VALUES(1,?)", -1, &stmt,
+                                    nullptr), SQLITE_OK);
+        sqlite3_bind_text(stmt, 1, payload.c_str(), -1, SQLITE_TRANSIENT);
+        ASSERT_EQ(sqlite3_step(stmt), SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
+      } else {
+        std::ofstream(path) << payload;
+      }
+      std::ifstream originalFile(path, std::ios::binary);
+      const std::string original((std::istreambuf_iterator<char>(originalFile)), {});
+      originalFile.close();
+      CareerSave save;
+      std::vector<TransferBid> bids;
+      blunted::CareerPersistence::CareerSaveSummary summary;
+      ASSERT_TRUE(blunted::CareerPersistence::ReadSummary(path, summary));
+      EXPECT_EQ(summary.mode, expected[oldRole]);
+      ASSERT_TRUE(blunted::CareerPersistence::Load(save, bids, path));
+      EXPECT_EQ(save.mode, expected[oldRole]);
+      EXPECT_EQ(save.handsOnManagement, oldRole != 0 && oldRole != 2);
+      ASSERT_TRUE(blunted::CareerPersistence::Save(save, bids, path));
+      ASSERT_TRUE(blunted::CareerPersistence::Save(save, bids, path));
+      CareerSave reloaded;
+      ASSERT_TRUE(blunted::CareerPersistence::Load(reloaded, bids, path));
+      ASSERT_TRUE(blunted::CareerPersistence::ReadSummary(path, summary));
+      EXPECT_EQ(summary.schemaVersion, 2);
+      EXPECT_EQ(summary.mode, expected[oldRole]);
+      EXPECT_EQ(reloaded.mode, expected[oldRole]);
+      EXPECT_EQ(reloaded.handsOnManagement, save.handsOnManagement);
+      EXPECT_EQ(reloaded.transferBudget, 1234567);
+      EXPECT_EQ(reloaded.wageBudget, 76543);
+      EXPECT_EQ(reloaded.season.currentSeason, 7);
+      EXPECT_EQ(reloaded.season.currentWeek, 19);
+      EXPECT_EQ(reloaded.controlledEntityID, 901);
+      EXPECT_EQ(reloaded.trainingPoints, 9);
+      ASSERT_EQ(reloaded.roster.size(), 1u);
+      EXPECT_EQ(reloaded.roster[0].name, "Alex");
+      ASSERT_EQ(reloaded.season.fixtures.size(), 1u);
+      EXPECT_EQ(reloaded.season.fixtures[0].homeGoals, 2);
+      ASSERT_EQ(reloaded.history.size(), 1u);
+      EXPECT_EQ(reloaded.history[0].season, 6);
+      std::ifstream backup(path + ".pre-three-modes.bak", std::ios::binary);
+      const std::string preserved((std::istreambuf_iterator<char>(backup)), {});
+      EXPECT_EQ(preserved, original);
+    }
+  }
+}
+
+TEST(CareerRoleMigrationTest, InvalidRolesAndFuturePayloadsDoNotReplaceActiveState) {
+  for (const auto& fields : {"mode=notanumber\n", "mode=5\n", "mode=-1\n",
+                             "formatVersion=2\nmode=1\nhandsOnManagement=1\n",
+                             "formatVersion=3\nmode=player\nhandsOnManagement=0\n",
+                             "formatVersion=2\nmode=owner_gm\nhandsOnManagement=maybe\n"}) {
+    SCOPED_TRACE(fields);
+    const auto dir = UniqueTempDir("invalid_role");
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const auto path = (fs::path(dir) / "invalid.save").string();
+    std::ofstream(path) << "name=Invalid Club\n" << fields;
+    CareerSave save;
+    save.name = "Keep me";
+    std::vector<TransferBid> bids(1);
+    blunted::CareerPersistence::CareerSaveSummary summary;
+    summary.isValid = true;
+    EXPECT_FALSE(blunted::CareerPersistence::Load(save, bids, path));
+    EXPECT_FALSE(blunted::CareerPersistence::ReadSummary(path, summary));
+    EXPECT_FALSE(summary.isValid);
+    EXPECT_EQ(save.name, "Keep me");
+    EXPECT_EQ(bids.size(), 1u);
+  }
+}
+
+TEST(CareerRoleMigrationTest, ThreeRolesAndLegacyAliasesCreateCorrectResponsibilities) {
+  auto& db = CareerDatabase::GetInstance();
+  const auto dir = UniqueTempDir("creation_roles");
+  fs::remove_all(dir);
+  db.Initialize(dir);
+  for (const std::string alias : {"owner_gm", "manager", "owner", "mygm", "coach", "mycoach", "player"}) {
+    SCOPED_TRACE(alias);
+    ASSERT_TRUE(db.CreateNewCareer("Role Club", alias, "Alex"));
+    auto* save = db.GetActiveSave();
+    ASSERT_NE(save, nullptr);
+    if (alias == "player") {
+      EXPECT_EQ(save->mode, CareerMode::PLAYER);
+      EXPECT_FALSE(CanManageClub(*save));
+      EXPECT_FALSE(CanManageTeam(*save));
+      EXPECT_FALSE(db.SetTrainingPlan(CareerTrainingPlan::DEVELOPMENT));
+      EXPECT_FALSE(db.TrainSquad());
+      EXPECT_FALSE(db.TrainFocus("Attacking"));
+      EXPECT_EQ(save->trainingPoints, 10);
+      EXPECT_EQ(save->trainingPlan, CareerTrainingPlan::BALANCED);
+      EXPECT_FALSE(db.SetHandsOnManagement(true));
+    } else if (alias == "coach" || alias == "mycoach") {
+      EXPECT_EQ(save->mode, CareerMode::COACH);
+      EXPECT_TRUE(CanManageTeam(*save));
+      EXPECT_FALSE(CanManageClub(*save));
+    } else {
+      EXPECT_EQ(save->mode, CareerMode::OWNER_GM);
+      EXPECT_TRUE(CanManageClub(*save));
+      EXPECT_EQ(CanManageTeam(*save), alias != "mygm");
+      ASSERT_TRUE(db.SetHandsOnManagement(false));
+      EXPECT_FALSE(CanPlayCareerMatch(*save));
+      EXPECT_FALSE(db.SetTrainingPlan(CareerTrainingPlan::DEVELOPMENT));
+      ASSERT_TRUE(db.LoadCareerSlot(0));
+      EXPECT_FALSE(db.GetActiveSave()->handsOnManagement);
+      ASSERT_TRUE(db.SetHandsOnManagement(true));
+      EXPECT_TRUE(CanPlayCareerMatch(*db.GetActiveSave()));
+    }
+  }
+  EXPECT_FALSE(db.CreateNewCareer("Replace me", "unknown", "Nobody"));
+  EXPECT_EQ(db.GetActiveSave()->name, "Role Club");
+}
+
+}  // namespace

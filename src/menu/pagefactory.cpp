@@ -1,4 +1,5 @@
 #include "pagefactory.hpp"
+#include "utils/localization.hpp"
 
 #include "../main.hpp"
 #include "cameramenu.hpp"
@@ -341,7 +342,7 @@ Gui2Page* PageFactory::CreatePage(const Gui2PageData& pageData) {
       break;
 
     case e_PageID_OwnerHub:
-      page = new OwnerHubPage(windowManager, pageData);
+      page = new CareerHubPage(windowManager, pageData);  // Legacy hub route.
       break;
 
     case e_PageID_OwnerStadium:
@@ -382,10 +383,36 @@ Gui2Page* PageFactory::CreatePage(const Gui2PageData& pageData) {
     }
     const std::string smokeRoute = GetConfiguration()->Get("menu_smoke_test_page", "");
     if (!smokeRoute.empty() && pageData.pageID == StandaloneMenuSmokePage(smokeRoute)) {
-      if (smokeRoute != "career_training" || SmokeCareerTraining(windowManager, page))
+      bool passed = true;
+      if (smokeRoute == "career_season_pending") {
+        const auto* save = CareerDatabase::GetInstance().GetActiveSave();
+        auto* warning = dynamic_cast<Gui2Caption*>(FindCareerHubView(page, "caption_season_warn"));
+        auto* advance = FindCareerHubView(page, "btn_season_advance");
+        passed = save && warning && advance && !CareerDatabase::GetInstance().CanAdvanceSeason() &&
+            save->season.currentWeek == save->season.maxWeeks &&
+            warning->GetCaption() == TRF("career_season_wait", {
+                std::to_string(save->season.currentWeek), std::to_string(save->season.maxWeeks)});
+      }
+      if (smokeRoute == "career_roster" || smokeRoute == "career_roster_player")
+        passed = SmokeCareerRoster(windowManager, page);
+      if (smokeRoute == "career_tactics" || smokeRoute == "career_tactics_delegated")
+        passed = windowManager->GetFocus() && windowManager->GetFocus()->GetName() ==
+            (smokeRoute == "career_tactics" ? "career_tactic_1" : "btn_st_back");
+      if (smokeRoute == "career_training") passed = SmokeCareerTraining(windowManager, page);
+      if (pageData.pageID == e_PageID_CareerHub || pageData.pageID == e_PageID_OwnerHub)
+        passed = SmokeCareerHub(windowManager, page,
+            atoi(GetConfiguration()->Get("menu_smoke_career_section", "0").c_str()));
+      if (smokeRoute == "career_player_training")
+        passed = FindCareerHubView(page, "personal_training_summary") &&
+                 FindCareerHubView(page, "training_session_0") &&
+                 !FindCareerHubView(page, "training_plans") && !FindCareerHubView(page, "development_players") &&
+                 windowManager->GetFocus() && windowManager->GetFocus()->GetName() ==
+                     (CareerDatabase::GetInstance().GetActiveSave()->trainingPoints > 0 ?
+                          "training_session_0" : "btn_tr_back");
+      if (passed)
         printf("[menu-smoke] Standalone %s reached successfully\n", smokeRoute.c_str());
       else
-        printf("[menu-smoke] Career training navigation failed\n");
+        printf("[menu-smoke] Career navigation checks failed\n");
       GetMenuTask()->QuitGame();
     }
   }

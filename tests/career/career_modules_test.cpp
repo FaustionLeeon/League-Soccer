@@ -6,6 +6,7 @@
 #include "data/careerdata.hpp"
 #include "menu/career/career_board.hpp"
 #include "menu/career/career_common.hpp"
+#include "menu/career/career_hub_model.hpp"
 #include "menu/career/career_finance.hpp"
 #include "menu/career/career_sim.hpp"
 #include "menu/career/career_training.hpp"
@@ -187,7 +188,7 @@ TEST(CareerFinanceModuleTest, FinancialHealthStringTiers) {
 TEST(LocalizationTest, FormatsMultilineCareerTextAndFallsBackToEnglish) {
   ASSERT_TRUE(Localization::GetInstance().Load("en"));
   EXPECT_EQ(TR("career_hub_title"), "Career Hub");
-  EXPECT_EQ(TR("career_menu_coach"), "Head Coach\nMatchday leadership");
+  EXPECT_EQ(TR("career_menu_coach"), "Coach\nLead and develop the team");
   EXPECT_EQ(TRF("career_progress_line", {"2", "38", "1", "0", "1", "3", "2"}),
             "Week 2/38 | W 1  D 0  L 1 | GF 3  GA 2");
   EXPECT_EQ(TR("career_hub_club_snapshot"), "Club Snapshot");
@@ -199,7 +200,8 @@ TEST(LocalizationTest, FormatsMultilineCareerTextAndFallsBackToEnglish) {
 
   ASSERT_TRUE(Localization::GetInstance().Load("es"));
   EXPECT_EQ(TR("menu_match"), "Partido");
-  EXPECT_EQ(TR("career_hub_title"), "Career Hub");
+  EXPECT_EQ(TR("career_hub_title"), "Centro de carrera");
+  EXPECT_EQ(TR("career_hub_club_snapshot"), "Club Snapshot");
 }
 
 TEST(CareerFinanceModuleTest, SetTicketPriceClamps) {
@@ -397,4 +399,52 @@ TEST(CareerDevelopmentTest, FatiguedSquadsPerformWorseAcrossIdenticalSimulationS
     tiredDifference += tiredResult.homeGoals - tiredResult.awayGoals;
   }
   EXPECT_GT(freshDifference, tiredDifference);
+}
+
+TEST(CareerHub, RoleWorkspacesRespectResponsibilities) {
+  using A = CareerHubAction;
+  auto has = [](const CareerSave& save, CareerHubSection section, A action) {
+    const auto tools = CareerHubTools(save, section);
+    return std::any_of(tools.begin(), tools.end(), [&](const CareerHubTool& tool) {
+      return tool.action == action;
+    });
+  };
+  CareerSave save;
+  for (auto role : {CareerMode::OWNER_GM, CareerMode::COACH, CareerMode::PLAYER}) {
+    save.mode = role;
+    for (bool handsOn : {false, true}) {
+      save.handsOnManagement = handsOn;
+      EXPECT_EQ(has(save, CareerHubSection::TEAM, A::STRATEGY),
+                role == CareerMode::COACH || (role == CareerMode::OWNER_GM && handsOn));
+      EXPECT_EQ(has(save, CareerHubSection::TEAM, A::TRANSFERS), role == CareerMode::OWNER_GM);
+      EXPECT_EQ(has(save, CareerHubSection::ROLE, A::PRESS), role != CareerMode::PLAYER);
+      EXPECT_EQ(has(save, CareerHubSection::ROLE, A::FINANCES), role == CareerMode::OWNER_GM);
+      EXPECT_EQ(has(save, CareerHubSection::ROLE, A::RESPONSIBILITIES), role == CareerMode::OWNER_GM);
+      EXPECT_EQ(has(save, CareerHubSection::COMPETITIONS, A::CUSTOM), role == CareerMode::OWNER_GM);
+      EXPECT_TRUE(has(save, CareerHubSection::COMPETITIONS, A::STANDINGS));
+    }
+  }
+}
+
+TEST(CareerHub, PersonalToolsRequireUniqueControlledIdentity) {
+  CareerSave save;
+  save.mode = CareerMode::PLAYER;
+  save.controlledEntityID = 42;
+  PlayerCareerState player;
+  player.databaseID = 7;
+  save.roster.push_back(player);
+  EXPECT_EQ(ControlledCareerPlayer(save), nullptr);
+  EXPECT_TRUE(CareerHubTools(save, CareerHubSection::ROLE).empty());
+  save.roster[0].databaseID = 42;
+  ASSERT_NE(ControlledCareerPlayer(save), nullptr);
+  auto tools = CareerHubTools(save, CareerHubSection::ROLE);
+  ASSERT_EQ(tools.size(), 2u);
+  EXPECT_EQ(tools[0].action, CareerHubAction::TRAINING);
+  EXPECT_EQ(tools[1].action, CareerHubAction::REQUEST_TRANSFER);
+  EXPECT_STREQ(tools[1].label, "career_nav_request_transfer");
+  save.roster[0].contract.transferListed = true;
+  EXPECT_STREQ(CareerHubTools(save, CareerHubSection::ROLE)[1].label, "career_nav_cancel_request");
+  save.roster.push_back(save.roster[0]);
+  EXPECT_EQ(ControlledCareerPlayer(save), nullptr);
+  EXPECT_TRUE(CareerHubTools(save, CareerHubSection::ROLE).empty());
 }

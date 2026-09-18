@@ -1,3 +1,4 @@
+#include "career/career_navigation.hpp"
 #include "menutask.hpp"
 
 #include "../onthepitch/match.hpp"
@@ -154,8 +155,7 @@ void MenuTask::ProcessPhase() {
     } else if (GetConfiguration()->GetBool("career_resume_hub", false)) {
       GetConfiguration()->SetBool("career_resume_hub", false);
       CareerSave* save = CareerDatabase::GetInstance().GetActiveSave();
-      const int hubPage = (save && save->mode == CareerMode::OWNER) ? (int)e_PageID_OwnerHub
-                                                                    : (int)e_PageID_CareerHub;
+      const int hubPage = CareerHubPageID(save);
       windowManager->GetPageFactory()->CreatePage(hubPage, properties, 0);
     } else if (!QuickStart()) {
       if (!IsReleaseVersion()) {

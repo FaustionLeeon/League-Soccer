@@ -145,7 +145,7 @@ void Run20SeasonCareerSimulation() {
   save.name = "London City FC";
   save.managerName = "Julian Hunter";
   save.club.clubName = "London City FC";
-  save.mode = CareerMode::MANAGER;
+  save.mode = CareerMode::OWNER_GM;
   save.transferBudget = 35000000;
   save.wageBudget = 400000;
   save.finance.transferBudget = save.transferBudget;

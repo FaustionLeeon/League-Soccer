@@ -14,7 +14,7 @@ struct CareerSaveSummary {
   std::string name;
   std::string clubName;
   std::string managerName;
-  CareerMode mode = CareerMode::MANAGER;
+  CareerMode mode = CareerMode::OWNER_GM;
   int season = 1;
   int week = 1;
   long long transferBudget = 0;

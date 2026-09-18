@@ -184,7 +184,7 @@ void RunCareerPersistenceTests() {
   CareerSave save;
   save.name = "Persistence Test FC";
   save.managerName = "Test Coach";
-  save.mode = CareerMode::GM;
+  save.mode = CareerMode::OWNER_GM;
   save.currentSeason = 3;
   save.season.currentSeason = 3;
   save.transferBudget = 45000000;

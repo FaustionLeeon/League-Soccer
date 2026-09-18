@@ -2,6 +2,7 @@
 #define CAREER_DATABASE_HPP
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,8 @@ using PlayerCareerState = ::PlayerCareerState;
 struct CareerPendingFixture {
   bool hasFixture = false;
   bool isHome = true;
+  int season = 0;
+  int week = 0;
   int userTeamDBID = 0;
   int opponentTeamDBID = 0;
   std::string opponentName;
@@ -41,8 +44,8 @@ public:
     return instance;
   }
 
-  void SetPendingFixture(bool isHome, int userTeamDBID, int opponentTeamDBID,
-                         const std::string& opponentName);
+  bool SetPendingFixture(bool isHome, int userTeamDBID, int opponentTeamDBID,
+                         const std::string& opponentName, int expectedSeason = -1, int expectedWeek = -1);
   bool HasPendingFixture() const;
   const CareerPendingFixture& GetPendingFixture() const;
   void ClearPendingFixture();
@@ -67,68 +70,67 @@ public:
   void AddEvent(const std::string& eventType, const std::string& description, int reputationDelta,
                 bool isMajor) override;
 
-  void RecruitFreeAgent(const std::string& playerName);
+  void RecruitFreeAgent(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
   bool TrainSquad();
-  bool SetTrainingPlan(CareerTrainingPlan plan);
+  bool SetHandsOnManagement(bool enabled);
+  bool SetTrainingPlan(CareerTrainingPlan plan, CareerActionSource source = CareerActionSource::USER);
   bool TrainFocus(const std::string& focusArea);
-  bool MotivatePlayer(const std::string& playerName);
-  bool DrillPlayer(const std::string& playerName);
-  void SetStrategy(const std::string& strategy);
+  bool MotivatePlayer(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
+  bool DrillPlayer(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
+  void SetStrategy(const std::string& strategy, CareerActionSource source = CareerActionSource::USER);
 
-  void ScoutYouthPlayer();
-  void PromoteYouthPlayer(const std::string& playerName);
+  void ScoutYouthPlayer(CareerActionSource source = CareerActionSource::USER);
+  void PromoteYouthPlayer(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
 
-  void ModifyBudget(long long transferDelta, long long wageDelta);
+  void ModifyBudget(long long transferDelta, long long wageDelta, CareerActionSource source = CareerActionSource::USER);
   void ModifyBoardConfidence(int delta) override;
 
-  void AdvanceSeason();
+  bool ExtendContract(const std::string& playerName);
+  bool ToggleTransferList(const std::string& playerName);
+  bool CanAdvanceSeason() const;
+  bool AdvanceSeason(int expectedSeason = -1);
+  bool CompleteFixture(int season, int week, bool isHome, int userTeamID, int opponentTeamID,
+                       const std::string& opponentName, int userGoals, int opponentGoals,
+                       const std::vector<std::string>& scorers = {});
   void ProcessPlayerGrowth(PlayerCareerState& player);
   void UpdatePlayerValue(PlayerCareerState& player);
-  void ReleasePlayer(const std::string& playerName);
+  void ReleasePlayer(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
   void RecordMatchStats(const std::string& playerName, int goals, int assists);
 
   void PopulateTransferMarket();
   std::vector<TransferTarget> GetTransferTargets() const;
   TransferBid PlaceBid(const std::string& playerName, long long bidAmount, int offeredWage,
-                       int contractYears);
+                       int contractYears, CareerActionSource source = CareerActionSource::USER);
   std::vector<TransferBid>& GetActiveBids() { return m_activeBids; }
-  void WithdrawBid(const std::string& playerName);
+  void WithdrawBid(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
   void ProcessPendingBids();
   std::string GetBidStatusString(BidStatus status) const;
-  bool CompleteTransfer(const std::string& playerName);
+  bool CompleteTransfer(const std::string& playerName, CareerActionSource source = CareerActionSource::USER);
 
   void InitializeOwnerData();
-  void UpgradeStadium(int upgradeIndex);
-  void RenameStadium(const std::string& newName);
-  void RepairStadium(int amount);
-  void SetTicketPrice(int price);
+  void UpgradeStadium(int upgradeIndex, CareerActionSource source = CareerActionSource::USER);
+  void RenameStadium(const std::string& newName, CareerActionSource source = CareerActionSource::USER);
+  void RepairStadium(int amount, CareerActionSource source = CareerActionSource::USER);
+  void SetTicketPrice(int price, CareerActionSource source = CareerActionSource::USER);
 
-  void HireStaff(const StaffMember& member);
-  void FireStaff(const std::string& staffName);
+  void HireStaff(const StaffMember& member, CareerActionSource source = CareerActionSource::USER);
+  void FireStaff(const std::string& staffName, CareerActionSource source = CareerActionSource::USER);
   void GenerateStaffCandidates(std::vector<StaffMember>& candidates);
 
   void GenerateSponsorOffers();
-  bool AcceptSponsorDeal(int dealIndex);
-  void TerminateSponsorDeal(const std::string& sponsorName);
+  bool AcceptSponsorDeal(int dealIndex, CareerActionSource source = CareerActionSource::USER);
+  void TerminateSponsorDeal(const std::string& sponsorName, CareerActionSource source = CareerActionSource::USER);
 
-  void ProcessSeasonFinances();
   long long GetSeasonProfit() const;
   std::string GetFinancialHealthString() const;
 
   void GenerateBoardObjectives();
-  void EvaluateBoardObjectives();
 
-  void InvestInFanBase(long long amount);
-  void InvestInPrestige(long long amount);
+  void InvestInFanBase(long long amount, CareerActionSource source = CareerActionSource::USER);
+  void InvestInPrestige(long long amount, CareerActionSource source = CareerActionSource::USER);
 
   SimulatedMatch SimulateMatchResult(const std::string& opponentName,
                                      const std::string& opponentTeamDBID, bool isHome = true);
-  // Apply a finished match to season W/D/L, goals, board confidence, reputation,
-  // and optional scorer bookkeeping. Shared by sim and 3D result paths.
-  void ApplyMatchResult(int homeGoals, int awayGoals, const std::string& opponentLabel,
-                        const std::vector<std::string>& scorers = {});
-  void Process3DMatchResult(int homeGoals, int awayGoals);
-
   // Standings and top scorers
   std::vector<CareerSim::CareerLeagueTableRow> GetLeagueStandings(
       const std::vector<std::pair<int, std::string>>& leagueClubs = {}) const;
@@ -153,6 +155,8 @@ public:
   std::vector<CareerEvent> GetRecentEvents(int limit = 5) const;
 
 private:
+  bool CommitLifecycle(const std::function<void()>& mutate);
+  bool m_inLifecycle = false;
   std::unique_ptr<CareerSave> m_activeSave;
   std::string m_saveDirectory;
   std::vector<TransferTarget> m_transferTargets;

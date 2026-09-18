@@ -339,7 +339,7 @@ TEST(CareerSeasonTest, PrizeMoneyAndTitleAward) {
 
   // Validate title increment & prize money
   EXPECT_EQ(save->legacyStats["titles"], initialTitles + 1);
-  EXPECT_EQ(save->transferBudget, initialBudget + 35000000);
+  EXPECT_EQ(save->transferBudget, initialBudget + 35000000 + db.GetSeasonProfit() / 2);
 }
 
 TEST(CareerSeasonTest, PlayerContractExpiration) {
@@ -380,7 +380,8 @@ TEST(CareerSeasonTest, PlayerContractExpiration) {
 
   // Advancing the season decrements contract years.
   // The two 1-year players hit 0 years and should depart since squad > 14.
-  db.AdvanceSeason();
+  save->season.currentWeek = save->season.maxWeeks + 1;
+  ASSERT_TRUE(db.AdvanceSeason());
 
   EXPECT_EQ(save->roster.size(), 14u);
   EXPECT_EQ(save->freeAgents.size(), 2u);
@@ -392,7 +393,8 @@ TEST(CareerSeasonTest, PlayerContractExpiration) {
   save->roster[0].contract.yearsRemaining = 1;
   long long prevWage = save->roster[0].wage;
 
-  db.AdvanceSeason();
+  save->season.currentWeek = save->season.maxWeeks + 1;
+  ASSERT_TRUE(db.AdvanceSeason());
 
   // Squad size must NOT fall below 14: emergency extension triggered
   EXPECT_EQ(save->roster.size(), 14u);
@@ -578,4 +580,219 @@ TEST(CareerPersistenceAuditTest, DeleteSlotCleansAllArtifacts) {
   EXPECT_FALSE(db.HasSaveSlot(3));
 }
 
+}  // namespace
+
+namespace {
+TEST(CareerLifecycleTest, PlayedAndSimulatedResultsAdvanceOnceAcrossReloads) {
+  for (const std::string role : {"owner_gm", "coach", "player"}) {
+    for (bool played : {false, true}) {
+      auto& db = CareerDatabase::GetInstance();
+      auto dir = UniqueTempDir(role + (played ? "played" : "simulated"));
+      fs::remove_all(dir);
+      db.Initialize(dir);
+      ASSERT_TRUE(db.CreateNewCareer("Lifecycle", role, "Alex"));
+      auto* save = db.GetActiveSave();
+      save->club.clubID = 10;
+      PlayerCareerState player;
+      player.name = "Alex";
+      player.ovr = 60;
+      player.pot = 80;
+      player.age = 20;
+      save->roster.push_back(player);
+      if (played) {
+        ASSERT_TRUE(db.SetPendingFixture(false, 10, 20, "Rival", 1, 1));
+        ASSERT_TRUE(db.ConsumePlayedFixture(1, 3));
+        EXPECT_FALSE(db.ConsumePlayedFixture(1, 3));
+      } else {
+        ASSERT_TRUE(db.CompleteFixture(1, 1, false, 10, 20, "Rival", 3, 1));
+      }
+      const auto points = save->roster[0].developmentPoints;
+      EXPECT_GT(points, 0);
+      EXPECT_EQ(save->season.currentWeek, 2);
+      EXPECT_EQ(save->seasonWins, 1);
+      ASSERT_EQ(save->season.fixtures.size(), 1u);
+      EXPECT_EQ(save->season.fixtures[0].homeGoals, 1);
+      EXPECT_EQ(save->season.fixtures[0].awayGoals, 3);
+      EXPECT_EQ(save->season.fixtures[0].season, 1);
+      ASSERT_TRUE(db.LoadCareerSlot(0));
+      EXPECT_FALSE(db.CompleteFixture(1, 1, false, 10, 20, "Rival", 3, 1));
+      EXPECT_FALSE(db.SetPendingFixture(false, 10, 20, "Rival", 1, 1));
+      EXPECT_EQ(db.GetActiveSave()->roster[0].developmentPoints, points);
+      EXPECT_EQ(db.GetActiveSave()->seasonWins, 1);
+      EXPECT_EQ(db.GetActiveSave()->season.currentWeek, 2);
+      EXPECT_FALSE(db.CompleteFixture(1, 2, true, 10, 20, "Rival", -1, 0));
+      EXPECT_EQ(db.GetActiveSave()->season.currentWeek, 2);
+    }
+  }
+}
+
+TEST(CareerLifecycleTest, SeasonClosesOnceForEveryRoleAndPersistsInfrastructureAndFinances) {
+  for (const std::string role : {"owner_gm", "coach", "player"}) {
+    auto& db = CareerDatabase::GetInstance();
+    auto dir = UniqueTempDir(role);
+    fs::remove_all(dir);
+    db.Initialize(dir);
+    ASSERT_TRUE(db.CreateNewCareer("Season", role, "Alex"));
+    EXPECT_FALSE(db.AdvanceSeason(1));
+    auto* save = db.GetActiveSave();
+    save->club.clubID = 10;
+    save->season.maxWeeks = 1;
+    save->stadium.upgrades.push_back({"Test stand", "Capacity", 100, 1, 1, 1000, 500});
+    const int capacity = save->stadium.capacity;
+    ASSERT_TRUE(db.CompleteFixture(1, 1, true, 10, 20, "Rival", 1, 0));
+    EXPECT_FALSE(db.CompleteFixture(1, 2, true, 10, 20, "Rival", 1, 0));
+    ASSERT_TRUE(db.AdvanceSeason(1));
+    EXPECT_EQ(save->season.currentSeason, 2);
+    EXPECT_EQ(save->season.currentWeek, 1);
+    EXPECT_EQ(save->history.size(), 1u);
+    EXPECT_TRUE(save->season.fixtures.empty());
+    EXPECT_EQ(save->stadium.capacity, capacity + 1000);
+    EXPECT_EQ(save->stadium.upgrades[0].seasonsRemaining, 0);
+    const auto budget = save->transferBudget;
+    const auto profit = db.GetSeasonProfit();
+    const auto reputation = save->reputation;
+    const auto offers = save->availableSponsorOffers.size();
+    EXPECT_NE(profit, 0);
+    ASSERT_TRUE(db.LoadCareerSlot(0));
+    save = db.GetActiveSave();
+    EXPECT_FALSE(db.AdvanceSeason(1));
+    EXPECT_FALSE(db.AdvanceSeason(2));
+    EXPECT_EQ(save->transferBudget, budget);
+    EXPECT_EQ(save->finance.transferBudget, budget);
+    EXPECT_EQ(db.GetSeasonProfit(), profit);
+    EXPECT_EQ(save->availableSponsorOffers.size(), offers);
+    EXPECT_EQ(save->reputation, reputation);
+    ASSERT_EQ(save->stadium.upgrades.size(), 1u);
+    EXPECT_EQ(save->stadium.upgrades[0].seasonsRemaining, 0);
+    ASSERT_TRUE(db.CompleteFixture(2, 1, true, 10, 20, "Rival", 0, 0));
+    ASSERT_TRUE(db.AdvanceSeason(2));
+    EXPECT_EQ(save->stadium.capacity, capacity + 1000);
+  }
+}
+
+TEST(CareerLifecycleTest, FailedCommitRollsBackResultsAndSeasonRewards) {
+  auto& db = CareerDatabase::GetInstance();
+  const fs::path dir = UniqueTempDir("failed_commit");
+  fs::remove_all(dir);
+  db.Initialize(dir.string());
+  ASSERT_TRUE(db.CreateNewCareer("Rollback", "coach", "Alex"));
+  auto* save = db.GetActiveSave();
+  save->club.clubID = 10;
+  save->season.maxWeeks = 1;
+  ASSERT_TRUE(db.SaveCareerData());
+  const fs::path blocked = dir / "career.save.tmp";
+  fs::create_directories(blocked);
+  std::ofstream(blocked / "blocker") << "Nonempty directory blocks the temporary save file";
+  EXPECT_FALSE(db.CompleteFixture(1, 1, true, 10, 20, "Rival", 2, 0));
+  EXPECT_EQ(save->season.currentWeek, 1);
+  EXPECT_EQ(save->seasonWins, 0);
+  EXPECT_TRUE(save->season.fixtures.empty());
+  fs::remove_all(blocked);
+  ASSERT_TRUE(db.CompleteFixture(1, 1, true, 10, 20, "Rival", 2, 0));
+  const auto budget = save->transferBudget;
+  const auto reputation = save->reputation;
+  fs::create_directories(blocked);
+  std::ofstream(blocked / "blocker") << "Block season commit";
+  EXPECT_FALSE(db.AdvanceSeason(1));
+  EXPECT_EQ(save->season.currentSeason, 1);
+  EXPECT_EQ(save->transferBudget, budget);
+  EXPECT_EQ(save->reputation, reputation);
+  EXPECT_TRUE(save->history.empty());
+  ASSERT_TRUE(db.LoadCareerSlot(0));
+  EXPECT_EQ(db.GetActiveSave()->season.currentSeason, 1);
+  EXPECT_EQ(db.GetActiveSave()->history.size(), 0u);
+  fs::remove_all(blocked);
+  EXPECT_TRUE(db.AdvanceSeason(1));
+}
+
+TEST(CareerCommandTest, UserCannotSpendOrManageOutsideRoleButAiCanActExplicitly) {
+  auto& db = CareerDatabase::GetInstance();
+  for (const std::string role : {"coach", "player"}) {
+    db.Initialize(UniqueTempDir(role));
+    ASSERT_TRUE(db.CreateNewCareer("Permissions", role, "Alex"));
+    auto* save = db.GetActiveSave();
+    const auto budget = save->transferBudget;
+    const auto netWorth = save->finances.netWorth;
+    const auto staff = save->staff.size();
+    const auto name = save->stadium.name;
+    db.ModifyBudget(100000, 100000);
+    db.InvestInPrestige(1000000);
+    db.UpgradeStadium(0);
+    db.RenameStadium("Forbidden");
+    db.FireStaff(save->staff[0].name);
+    EXPECT_FALSE(db.AcceptSponsorDeal(0));
+    EXPECT_FALSE(db.CompleteTransfer("Anybody"));
+    EXPECT_EQ(db.PlaceBid("Anybody", 100, 100, 3).status, BidStatus::REJECTED);
+    EXPECT_EQ(save->transferBudget, budget);
+    EXPECT_EQ(save->finances.netWorth, netWorth);
+    EXPECT_EQ(save->staff.size(), staff);
+    EXPECT_EQ(save->stadium.name, name);
+    db.RenameStadium("AI renamed", CareerActionSource::AI);
+    EXPECT_EQ(save->stadium.name, "AI renamed");
+    if (role == "player") {
+      db.SetStrategy("Attacking");
+      EXPECT_EQ(save->activeStrategy, "Balanced");
+      db.SetStrategy("Defensive", CareerActionSource::AI);
+      EXPECT_EQ(save->activeStrategy, "Defensive");
+    }
+  }
+}
+}  // namespace
+
+namespace {
+TEST(CareerLifecycleTest, DelegatedTrainingAndPersonalRequestsRespectRoleAndIdentity) {
+  auto& db = CareerDatabase::GetInstance();
+  const auto dir = UniqueTempDir("delegation");
+  fs::remove_all(dir);
+  db.Initialize(dir);
+  ASSERT_TRUE(db.CreateNewCareer("Delegation", "player", "Alex"));
+  auto* save = db.GetActiveSave();
+  save->club.clubID = 10;
+  save->controlledEntityID = 100;
+  PlayerCareerState player;
+  player.name = "Alex";
+  player.databaseID = 100;
+  player.contract.yearsRemaining = 3;
+  player.contract.releaseClause = 123456;
+  player.ovr = 60;
+  player.pot = 80;
+  player.age = 20;
+  player.fitness = 65;
+  save->roster.push_back(player);
+  player.name = "Teammate";
+  player.databaseID = 101;
+  save->roster.push_back(player);
+  EXPECT_FALSE(db.ExtendContract("Alex"));
+  EXPECT_FALSE(db.ToggleTransferList("Teammate"));
+  EXPECT_FALSE(db.DrillPlayer("Teammate"));
+  ASSERT_TRUE(db.ToggleTransferList("Alex"));
+  EXPECT_TRUE(save->roster[0].contract.transferListed);
+  EXPECT_FALSE(save->roster[1].contract.transferListed);
+  ASSERT_TRUE(db.CompleteFixture(1, 1, true, 10, 20, "Rival", 0, 0));
+  EXPECT_EQ(save->trainingPlan, CareerTrainingPlan::RECOVERY);
+  EXPECT_EQ(save->roster[0].developmentPoints, 0);
+  ASSERT_TRUE(db.LoadCareerSlot(0));
+  EXPECT_EQ(db.GetActiveSave()->trainingPlan, CareerTrainingPlan::RECOVERY);
+  EXPECT_TRUE(db.GetActiveSave()->roster[0].contract.transferListed);
+  EXPECT_EQ(db.GetActiveSave()->roster[0].databaseID, 100);
+  EXPECT_EQ(db.GetActiveSave()->roster[0].contract.yearsRemaining, 3);
+  EXPECT_EQ(db.GetActiveSave()->roster[0].contract.releaseClause, 123456);
+}
+
+TEST(CareerLifecycleTest, LegacySimulatedResultBeforeBackDoesNotReplayTheWeek) {
+  const fs::path dir = UniqueTempDir("legacy_back");
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  std::ofstream(dir / "career.save") <<
+      "name=Legacy\nmode=1\nclubID=10\nweek=1\nseasonWins=1\nfixture.0=100|10|20|2|1|1\n";
+  auto& db = CareerDatabase::GetInstance();
+  db.Initialize(dir.string());
+  ASSERT_TRUE(db.LoadCareerSlot(0));
+  EXPECT_EQ(db.GetActiveSave()->season.currentWeek, 2);
+  EXPECT_FALSE(db.CompleteFixture(1, 1, true, 10, 20, "Rival", 2, 1));
+  ASSERT_TRUE(db.CompleteFixture(1, 2, false, 10, 30, "Next", 1, 0));
+  EXPECT_EQ(db.GetActiveSave()->seasonWins, 2);
+  ASSERT_TRUE(db.LoadCareerSlot(0));
+  EXPECT_EQ(db.GetActiveSave()->season.currentWeek, 3);
+}
 }  // namespace

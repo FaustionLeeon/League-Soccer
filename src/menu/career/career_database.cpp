@@ -21,13 +21,24 @@ namespace blunted {
 CareerDatabase::CareerDatabase() {}
 CareerDatabase::~CareerDatabase() {}
 
-void CareerDatabase::SetPendingFixture(bool isHome, int userTeamDBID, int opponentTeamDBID,
-                                       const std::string& opponentName) {
+bool CareerDatabase::SetPendingFixture(bool isHome, int userTeamDBID, int opponentTeamDBID,
+                                      const std::string& opponentName,
+                                      int expectedSeason, int expectedWeek) {
+  if (!m_activeSave || !CanPlayCareerMatch(*m_activeSave))
+    return false;
+  const auto& season = m_activeSave->season;
+  if ((expectedSeason >= 0 && expectedSeason != season.currentSeason) ||
+      (expectedWeek >= 0 && expectedWeek != season.currentWeek) ||
+      season.currentWeek > season.maxWeeks)
+    return false;
   m_pendingFixture.hasFixture = true;
   m_pendingFixture.isHome = isHome;
+  m_pendingFixture.season = season.currentSeason;
+  m_pendingFixture.week = season.currentWeek;
   m_pendingFixture.userTeamDBID = userTeamDBID;
   m_pendingFixture.opponentTeamDBID = opponentTeamDBID;
   m_pendingFixture.opponentName = opponentName;
+  return true;
 }
 
 bool CareerDatabase::HasPendingFixture() const {
@@ -43,30 +54,88 @@ void CareerDatabase::ClearPendingFixture() {
 }
 
 bool CareerDatabase::ConsumePlayedFixture(int matchGoals0, int matchGoals1) {
-  if (!m_pendingFixture.hasFixture || !m_activeSave) {
+  if (!m_pendingFixture.hasFixture || !m_activeSave)
+    return false;
+  const auto fixture = m_pendingFixture;
+  if (!CompleteFixture(fixture.season, fixture.week, fixture.isHome, fixture.userTeamDBID,
+                       fixture.opponentTeamDBID, fixture.opponentName,
+                       fixture.isHome ? matchGoals0 : matchGoals1,
+                       fixture.isHome ? matchGoals1 : matchGoals0))
+    return false;
+  ClearPendingFixture();
+  return true;
+}
+
+bool CareerDatabase::CommitLifecycle(const std::function<void()>& mutate) {
+  if (!m_activeSave || m_saveDirectory.empty() || m_inLifecycle)
+    return false;
+  const CareerSave before = *m_activeSave;
+  const auto bidsBefore = m_activeBids;
+  const auto targetsBefore = m_transferTargets;
+  const auto rngBefore = CareerCommon::Rng();
+  m_inLifecycle = true;
+  bool saved = false;
+  try {
+    mutate();
+    // The primary save is the commit point used by Continue. Events must never
+    // flush partially applied season rewards or match development to disk.
+    saved = CareerPersistence::Save(*m_activeSave, m_activeBids, GetSlotPath(0));
+  } catch (...) {
+    saved = false;
+  }
+  m_inLifecycle = false;
+  if (!saved) {
+    *m_activeSave = before;
+    m_activeBids = bidsBefore;
+    m_transferTargets = targetsBefore;
+    CareerCommon::Rng() = rngBefore;
     return false;
   }
-  int userGoals = m_pendingFixture.isHome ? matchGoals0 : matchGoals1;
-  int oppGoals = m_pendingFixture.isHome ? matchGoals1 : matchGoals0;
-
-  for (auto& f : m_activeSave->season.fixtures) {
-    if (!f.played &&
-        ((m_pendingFixture.isHome && f.homeTeamID == m_pendingFixture.userTeamDBID &&
-          f.awayTeamID == m_pendingFixture.opponentTeamDBID) ||
-         (!m_pendingFixture.isHome && f.homeTeamID == m_pendingFixture.opponentTeamDBID &&
-          f.awayTeamID == m_pendingFixture.userTeamDBID))) {
-      f.homeGoals = m_pendingFixture.isHome ? userGoals : oppGoals;
-      f.awayGoals = m_pendingFixture.isHome ? oppGoals : userGoals;
-      f.played = true;
-      break;
-    }
-  }
-
-  m_pendingFixture = CareerPendingFixture{};
-
-  CareerSim::Process3DMatchResult(*m_activeSave, *this, userGoals, oppGoals);
   AutoSave();
   return true;
+}
+
+bool CareerDatabase::CompleteFixture(int season, int week, bool isHome, int userTeamID,
+                                    int opponentTeamID, const std::string& opponentName,
+                                    int userGoals, int opponentGoals,
+                                    const std::vector<std::string>& scorers) {
+  if (!m_activeSave || userGoals < 0 || opponentGoals < 0 ||
+      season != m_activeSave->season.currentSeason || week != m_activeSave->season.currentWeek ||
+      week < 1 || week > m_activeSave->season.maxWeeks || userTeamID == opponentTeamID ||
+      opponentTeamID <= 0 || userTeamID <= 0 ||
+      (m_activeSave->club.clubID > 0 && userTeamID != m_activeSave->club.clubID))
+    return false;
+  const int fixtureID = week * 100;
+  for (const auto& fixture : m_activeSave->season.fixtures)
+    if (fixture.fixtureID == fixtureID && fixture.season == season && fixture.played)
+      return false;
+  const bool completed = CommitLifecycle([&] {
+    auto& save = *m_activeSave;
+    FixtureResult result{fixtureID, isHome ? userTeamID : opponentTeamID,
+                         isHome ? opponentTeamID : userTeamID,
+                         isHome ? userGoals : opponentGoals,
+                         isHome ? opponentGoals : userGoals, true, season};
+    auto existing = std::find_if(save.season.fixtures.begin(), save.season.fixtures.end(),
+                                [&](const FixtureResult& f) { return f.fixtureID == fixtureID && f.season == season; });
+    if (existing == save.season.fixtures.end())
+      save.season.fixtures.push_back(result);
+    else
+      *existing = result;
+    if (!CanManageTeam(save) && !save.roster.empty()) {
+      int fitness = 0;
+      for (const auto& player : save.roster)
+        fitness += player.fitness;
+      const auto plan = fitness / static_cast<int>(save.roster.size()) < 70
+                            ? CareerTrainingPlan::RECOVERY : CareerTrainingPlan::BALANCED;
+      SetTrainingPlan(plan, CareerActionSource::AI);
+    }
+    CareerSim::ApplyMatchResult(save, *this, userGoals, opponentGoals, opponentName, scorers);
+    ++save.season.currentWeek;
+    save.season.inPreseason = false;
+  });
+  if (completed)
+    ClearPendingFixture();
+  return completed;
 }
 
 bool CareerDatabase::Initialize(const std::string& saveDir) {
@@ -121,12 +190,14 @@ bool CareerDatabase::LoadCareerSlot(int slotIndex) {
     return false;
   m_activeSave = std::make_unique<CareerSave>(loaded);
   m_activeBids = loadedBids;
+  ClearPendingFixture();
+  m_transferTargets.clear();
   printf("[career] Loaded slot %d from %s\n", slotIndex, path.c_str());
   return true;
 }
 
 bool CareerDatabase::SaveCareerData() {
-  return SaveCareerSlot(0);
+  return m_inLifecycle || SaveCareerSlot(0);
 }
 
 bool CareerDatabase::SaveCareerSlot(int slotIndex) {
@@ -153,6 +224,8 @@ bool CareerDatabase::DeleteCareerSlot(int slotIndex) {
 }
 
 bool CareerDatabase::AutoSave() {
+  if (m_inLifecycle)
+    return true;
   if (!m_activeSave || m_saveDirectory.empty())
     return false;
   return SaveCareerSlot(-1);
@@ -168,20 +241,19 @@ bool CareerDatabase::GetSlotSummary(int slotIndex,
 
 bool CareerDatabase::CreateNewCareer(const std::string& careerName, const std::string& mode,
                                      const std::string& managerName) {
+  CareerMode role;
+  bool handsOn;
+  if (!DecodeCareerRole(mode, role, handsOn, true))
+    return false;
   m_activeSave = std::make_unique<CareerSave>();
   m_activeSave->name = careerName;
   m_activeSave->managerName = managerName;
   m_activeSave->club.clubName = careerName;
-  if (mode == "player")
-    m_activeSave->mode = CareerMode::PLAYER;
-  else if (mode == "mygm")
-    m_activeSave->mode = CareerMode::GM;
-  else if (mode == "mycoach")
-    m_activeSave->mode = CareerMode::COACH;
-  else if (mode == "owner")
-    m_activeSave->mode = CareerMode::OWNER;
-  else
-    m_activeSave->mode = CareerMode::MANAGER;
+  m_activeSave->mode = role;
+  m_activeSave->handsOnManagement = handsOn;
+  ClearPendingFixture();
+  m_activeBids.clear();
+  m_transferTargets.clear();
   m_activeSave->reputation = 50;
   m_activeSave->club.reputation = 50;
   m_activeSave->boardConfidence = 75;
@@ -227,22 +299,34 @@ void CareerDatabase::AddEvent(const std::string& eventType, const std::string& d
   }
 }
 
-void CareerDatabase::RecruitFreeAgent(const std::string& playerName) {
+void CareerDatabase::RecruitFreeAgent(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerTransfers::RecruitFreeAgent(*m_activeSave, *this, playerName);
 }
 
-void CareerDatabase::ScoutYouthPlayer() {
+void CareerDatabase::ScoutYouthPlayer(CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerTraining::ScoutYouthPlayer(*m_activeSave, *this);
 }
 
-void CareerDatabase::PromoteYouthPlayer(const std::string& playerName) {
+void CareerDatabase::PromoteYouthPlayer(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerTraining::PromoteYouthPlayer(*m_activeSave, *this, playerName);
 }
 
-void CareerDatabase::ModifyBudget(long long transferDelta, long long wageDelta) {
+void CareerDatabase::ModifyBudget(long long transferDelta, long long wageDelta, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::ModifyBudget(*m_activeSave, transferDelta, wageDelta);
 }
@@ -255,11 +339,23 @@ void CareerDatabase::ModifyBoardConfidence(int delta) {
 }
 
 bool CareerDatabase::TrainSquad() {
-  return m_activeSave && CareerTraining::TrainSquad(*m_activeSave, *this);
+  return m_activeSave && CanManageTeam(*m_activeSave) && CareerTraining::TrainSquad(*m_activeSave, *this);
 }
 
-bool CareerDatabase::SetTrainingPlan(CareerTrainingPlan plan) {
-  if (!m_activeSave || static_cast<int>(plan) < 0 || static_cast<int>(plan) > 2)
+bool CareerDatabase::SetHandsOnManagement(bool enabled) {
+  if (!m_activeSave || !CanManageClub(*m_activeSave))
+    return false;
+  const bool previous = m_activeSave->handsOnManagement;
+  m_activeSave->handsOnManagement = enabled;
+  if (SaveCareerData())
+    return true;
+  m_activeSave->handsOnManagement = previous;
+  return false;
+}
+
+bool CareerDatabase::SetTrainingPlan(CareerTrainingPlan plan, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageTeam(*m_activeSave)) ||
+      static_cast<int>(plan) < 0 || static_cast<int>(plan) > 2)
     return false;
   const auto previous = m_activeSave->trainingPlan;
   m_activeSave->trainingPlan = plan;
@@ -270,18 +366,35 @@ bool CareerDatabase::SetTrainingPlan(CareerTrainingPlan plan) {
 }
 
 bool CareerDatabase::TrainFocus(const std::string& focusArea) {
-  return m_activeSave && CareerTraining::TrainFocus(*m_activeSave, *this, focusArea);
+  if (!m_activeSave)
+    return false;
+  if (m_activeSave->mode == CareerMode::PLAYER) {
+    if (focusArea != "Individual")
+      return false;
+  } else if (!CanManageTeam(*m_activeSave)) {
+    return false;
+  }
+  return CareerTraining::TrainFocus(*m_activeSave, *this, focusArea);
 }
 
-bool CareerDatabase::MotivatePlayer(const std::string& playerName) {
+bool CareerDatabase::MotivatePlayer(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageTeam(*m_activeSave))) {
+    return false;
+  }
   return m_activeSave && CareerTraining::MotivatePlayer(*m_activeSave, *this, playerName);
 }
 
-bool CareerDatabase::DrillPlayer(const std::string& playerName) {
+bool CareerDatabase::DrillPlayer(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageTeam(*m_activeSave))) {
+    return false;
+  }
   return m_activeSave && CareerTraining::DrillPlayer(*m_activeSave, *this, playerName);
 }
 
-void CareerDatabase::SetStrategy(const std::string& strategy) {
+void CareerDatabase::SetStrategy(const std::string& strategy, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageTeam(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerTraining::SetStrategy(*m_activeSave, *this, strategy);
 }
@@ -475,15 +588,67 @@ std::vector<CareerSim::CareerTopScorer> CareerDatabase::GetTopScorers() const {
   return CareerSim::GetTopScorers(*m_activeSave);
 }
 
-void CareerDatabase::AdvanceSeason() {
-  if (!m_activeSave)
-    return;
-  CareerSim::AdvanceSeason(*m_activeSave, *this, m_activeBids, m_transferTargets);
-  SaveCareerData();
-  AutoSave();
+bool CareerDatabase::ExtendContract(const std::string& playerName) {
+  if (!m_activeSave || !CanManageClub(*m_activeSave))
+    return false;
+  auto player = std::find_if(m_activeSave->roster.begin(), m_activeSave->roster.end(),
+                            [&](const PlayerCareerState& p) { return p.name == playerName; });
+  if (player == m_activeSave->roster.end())
+    return false;
+  return CommitLifecycle([&] {
+    player->contract.yearsRemaining += 2;
+    player->wage = player->wage * 110 / 100;
+    player->contract.wage = player->wage;
+    player->morale = std::min(100, player->morale + 20);
+    AddEvent("contract", playerName + " signed a 2-year extension with a 10% wage increase.", 3, false);
+  });
 }
 
-void CareerDatabase::ReleasePlayer(const std::string& playerName) {
+bool CareerDatabase::ToggleTransferList(const std::string& playerName) {
+  if (!m_activeSave)
+    return false;
+  auto player = std::find_if(m_activeSave->roster.begin(), m_activeSave->roster.end(),
+                            [&](const PlayerCareerState& p) { return p.name == playerName; });
+  if (player == m_activeSave->roster.end())
+    return false;
+  const bool ownPlayer = m_activeSave->mode == CareerMode::PLAYER &&
+      m_activeSave->controlledEntityID > 0 && player->databaseID == m_activeSave->controlledEntityID;
+  if (!CanManageClub(*m_activeSave) && !ownPlayer)
+    return false;
+  return CommitLifecycle([&] {
+    player->contract.transferListed = !player->contract.transferListed;
+    AddEvent("transfer", playerName + (player->contract.transferListed ? " requested a transfer."
+                                                                    : " withdrew the transfer request."), 0, false);
+  });
+}
+
+bool CareerDatabase::CanAdvanceSeason() const {
+  return m_activeSave && m_activeSave->season.maxWeeks > 0 && !m_pendingFixture.hasFixture &&
+         (m_activeSave->season.currentWeek > m_activeSave->season.maxWeeks ||
+          m_activeSave->seasonWins + m_activeSave->seasonDraws + m_activeSave->seasonLosses >=
+              m_activeSave->season.maxWeeks);
+}
+
+bool CareerDatabase::AdvanceSeason(int expectedSeason) {
+  if (!CanAdvanceSeason() || (expectedSeason >= 0 &&
+      expectedSeason != m_activeSave->season.currentSeason))
+    return false;
+  return CommitLifecycle([&] {
+    CareerFinance::ProcessSeasonFinances(*m_activeSave);
+    CareerSim::AdvanceSeason(*m_activeSave, *this, m_activeBids, m_transferTargets);
+    CareerBoard::EvaluateBoardObjectives(*m_activeSave, *this);
+    CareerSponsors::GenerateSponsorOffers(*m_activeSave);
+    CareerBoard::GenerateBoardObjectives(*m_activeSave);
+    m_activeSave->season.fixtures.clear();
+    m_activeSave->finance.transferBudget = m_activeSave->transferBudget;
+    m_activeSave->finance.wageBudget = m_activeSave->wageBudget;
+  });
+}
+
+void CareerDatabase::ReleasePlayer(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerTransfers::ReleasePlayer(*m_activeSave, *this, playerName);
 }
@@ -503,14 +668,20 @@ std::vector<TransferTarget> CareerDatabase::GetTransferTargets() const {
 }
 
 TransferBid CareerDatabase::PlaceBid(const std::string& playerName, long long bidAmount,
-                                     int offeredWage, int contractYears) {
+                                     int offeredWage, int contractYears, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    TransferBid denied; denied.status = BidStatus::REJECTED; return denied;
+  }
   if (!m_activeSave)
     return TransferBid();
   return CareerTransfers::PlaceBid(*m_activeSave, *this, m_transferTargets, m_activeBids,
                                    playerName, bidAmount, offeredWage, contractYears);
 }
 
-void CareerDatabase::WithdrawBid(const std::string& playerName) {
+void CareerDatabase::WithdrawBid(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   CareerTransfers::WithdrawBid(m_activeBids, playerName);
 }
 
@@ -523,7 +694,10 @@ std::string CareerDatabase::GetBidStatusString(BidStatus status) const {
   return CareerTransfers::GetBidStatusString(status);
 }
 
-bool CareerDatabase::CompleteTransfer(const std::string& playerName) {
+bool CareerDatabase::CompleteTransfer(const std::string& playerName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return false;
+  }
   if (!m_activeSave)
     return false;
   return CareerTransfers::CompleteTransfer(*m_activeSave, *this, m_transferTargets, m_activeBids,
@@ -535,32 +709,50 @@ void CareerDatabase::InitializeOwnerData() {
     CareerFinance::InitializeOwnerData(*m_activeSave);
 }
 
-void CareerDatabase::UpgradeStadium(int upgradeIndex) {
+void CareerDatabase::UpgradeStadium(int upgradeIndex, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::UpgradeStadium(*m_activeSave, *this, upgradeIndex);
 }
 
-void CareerDatabase::RenameStadium(const std::string& newName) {
+void CareerDatabase::RenameStadium(const std::string& newName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::RenameStadium(*m_activeSave, newName);
 }
 
-void CareerDatabase::RepairStadium(int amount) {
+void CareerDatabase::RepairStadium(int amount, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::RepairStadium(*m_activeSave, amount);
 }
 
-void CareerDatabase::SetTicketPrice(int price) {
+void CareerDatabase::SetTicketPrice(int price, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::SetTicketPrice(*m_activeSave, price);
 }
 
-void CareerDatabase::HireStaff(const StaffMember& member) {
+void CareerDatabase::HireStaff(const StaffMember& member, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerStaff::HireStaff(*m_activeSave, member);
 }
 
-void CareerDatabase::FireStaff(const std::string& staffName) {
+void CareerDatabase::FireStaff(const std::string& staffName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerStaff::FireStaff(*m_activeSave, *this, staffName);
 }
@@ -574,19 +766,22 @@ void CareerDatabase::GenerateSponsorOffers() {
     CareerSponsors::GenerateSponsorOffers(*m_activeSave);
 }
 
-bool CareerDatabase::AcceptSponsorDeal(int dealIndex) {
+bool CareerDatabase::AcceptSponsorDeal(int dealIndex, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return false;
+  }
   return m_activeSave && CareerSponsors::AcceptSponsorDeal(*m_activeSave, *this, dealIndex);
 }
 
-void CareerDatabase::TerminateSponsorDeal(const std::string& sponsorName) {
+void CareerDatabase::TerminateSponsorDeal(const std::string& sponsorName, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerSponsors::TerminateSponsorDeal(*m_activeSave, *this, sponsorName);
 }
 
-void CareerDatabase::ProcessSeasonFinances() {
-  if (m_activeSave)
-    CareerFinance::ProcessSeasonFinances(*m_activeSave);
-}
+
 
 long long CareerDatabase::GetSeasonProfit() const {
   return m_activeSave ? CareerFinance::GetSeasonProfit(*m_activeSave) : 0;
@@ -601,17 +796,20 @@ void CareerDatabase::GenerateBoardObjectives() {
     CareerBoard::GenerateBoardObjectives(*m_activeSave);
 }
 
-void CareerDatabase::EvaluateBoardObjectives() {
-  if (m_activeSave)
-    CareerBoard::EvaluateBoardObjectives(*m_activeSave, *this);
-}
 
-void CareerDatabase::InvestInFanBase(long long amount) {
+
+void CareerDatabase::InvestInFanBase(long long amount, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::InvestInFanBase(*m_activeSave, amount);
 }
 
-void CareerDatabase::InvestInPrestige(long long amount) {
+void CareerDatabase::InvestInPrestige(long long amount, CareerActionSource source) {
+  if (!m_activeSave || (source == CareerActionSource::USER && !CanManageClub(*m_activeSave))) {
+    return;
+  }
   if (m_activeSave)
     CareerFinance::InvestInPrestige(*m_activeSave, amount);
 }
@@ -628,16 +826,8 @@ void CareerDatabase::SeedRng(unsigned int seed) {
   CareerCommon::SeedRng(seed);
 }
 
-void CareerDatabase::ApplyMatchResult(int homeGoals, int awayGoals,
-                                      const std::string& opponentLabel,
-                                      const std::vector<std::string>& scorers) {
-  if (m_activeSave)
-    CareerSim::ApplyMatchResult(*m_activeSave, *this, homeGoals, awayGoals, opponentLabel, scorers);
-}
 
-void CareerDatabase::Process3DMatchResult(int homeGoals, int awayGoals) {
-  if (m_activeSave)
-    CareerSim::Process3DMatchResult(*m_activeSave, *this, homeGoals, awayGoals);
-}
+
+
 
 }  // namespace blunted
