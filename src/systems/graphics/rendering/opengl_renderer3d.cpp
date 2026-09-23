@@ -75,7 +75,15 @@ SDL_Surface* CreateFallbackNoiseSurface() {
 }  // namespace
 
 OpenGLRenderer3D::OpenGLRenderer3D()
-    : context(nullptr), window(nullptr), contextIsActive(true), noiseTexID(-1) {
+    : context(nullptr),
+      window(nullptr),
+      logical_width(0),
+      logical_height(0),
+      context_width(0),
+      context_height(0),
+      context_bpp(0),
+      contextIsActive(true),
+      noiseTexID(-1) {
   const char* capturePath = SDL_getenv("GF_CAPTURE_DIRECTORY");
   if (capturePath) captureDirectory = capturePath;
   FOV = 45;
@@ -170,9 +178,12 @@ void OpenGLRenderer3D::RenderOverlay2D(const std::vector<Overlay2DQueueEntry>& o
 
   UseShader("overlay");
 
-  // VK: TODO: check window size instead?
-  Matrix4 orthoMatrix = CreateOrthoMatrix(0.0f, static_cast<real>(context_width),
-                                          static_cast<real>(context_height), 0.0f, 0.1f, 10.0f);
+  // Scene2D positions use the logical SDL window size. The OpenGL viewport uses
+  // the drawable size, which is commonly 2x larger on Retina. Projecting the
+  // overlay in logical coordinates lets OpenGL scale menus and HUD to the full
+  // drawable while the 3D scene keeps its native HiDPI resolution.
+  Matrix4 orthoMatrix = CreateOrthoMatrix(0.0f, static_cast<real>(logical_width),
+                                          static_cast<real>(logical_height), 0.0f, 0.1f, 10.0f);
   SetMatrix("projection", orthoMatrix);
 
   mapping.glBindVertexArray(overlayBuffer.vertexArrayID);
@@ -411,6 +422,8 @@ void OpenGLRenderer3D::InitializeOverlayAndQuadBuffers() {
 }
 
 bool OpenGLRenderer3D::CreateContext(int width, int height, int bpp, bool fullscreen) {
+  this->logical_width = width;
+  this->logical_height = height;
   this->context_width = width;
   this->context_height = height;
   this->context_bpp = bpp;

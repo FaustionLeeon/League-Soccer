@@ -153,6 +153,7 @@ protected:
 
   SDL_GLContext context;
   SDL_Window* window;
+  int logical_width, logical_height;
   int context_width, context_height, context_bpp;
   bool contextIsActive;
 
