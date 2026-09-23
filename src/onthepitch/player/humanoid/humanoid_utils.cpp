@@ -617,6 +617,15 @@ Vector3 GetShotVector(Match* match, Player* player, const Vector3& nextStartPos,
     worstCaseFactor *= 0.5f;  // PES controlled shot has higher placement precision
   }
 
+  // The worst-case blend dominates even at maximum technical_shot, so CPU sides
+  // rarely put a shot on target. cpu_shot_accuracy lets external simulations
+  // tighten it; human-controlled players keep the original behaviour.
+  if (!player->GetExternalController()) {
+    static const float cpuShotAccuracy =
+        clamp(GetConfiguration()->GetReal("cpu_shot_accuracy", 0.0f), 0.0f, 1.0f);
+    worstCaseFactor *= (1.0f - cpuShotAccuracy);
+  }
+
   Vector3 shot = desiredShot * (1.0f - worstCaseFactor) + worstCaseShot * worstCaseFactor;
 
   // add a little curve
