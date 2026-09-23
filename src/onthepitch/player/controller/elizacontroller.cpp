@@ -34,6 +34,7 @@ ElizaController::ElizaController(Match* match) : PlayerController(match) {
       clamp(GetConfiguration()->GetReal("cpu_shot_decision_threshold", 0.55f), 0.0f, 1.0f);
   cpuShotRandomBonus =
       clamp(GetConfiguration()->GetReal("cpu_shot_random_bonus", 0.28f), 0.0f, 1.0f);
+  cpuPrioritizeShots = GetConfiguration()->GetBool("cpu_prioritize_shots", false);
 }
 
 ElizaController::~ElizaController() {
@@ -1159,7 +1160,10 @@ void ElizaController::GetOnTheBallCommands(std::vector<PlayerCommand>& commandQu
       command.touchInfo.autoDirectionBias = 1.0f;
       command.touchInfo.desiredPower =
           random(0.7f * (0.6f + goalDist * 0.4f), 1.0f * (0.6f + goalDist * 0.4f));
-      commandQueue.push_back(command);
+      if (cpuPrioritizeShots)
+        commandQueue.insert(commandQueue.begin(), command);
+      else
+        commandQueue.push_back(command);
     }
   }
 
