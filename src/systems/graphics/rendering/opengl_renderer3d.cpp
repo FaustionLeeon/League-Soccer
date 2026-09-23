@@ -447,6 +447,15 @@ bool OpenGLRenderer3D::CreateContext(int width, int height, int bpp, bool fullsc
 
   SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
 
+#ifdef __APPLE__
+  // macOS defaults to the legacy OpenGL 2.1 profile. The bundled GLSL 150
+  // shaders require a 3.2+ core context.
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#endif
+
   // SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   // SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
   // SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -657,6 +666,12 @@ bool OpenGLRenderer3D::CreateContext(int width, int height, int bpp, bool fullsc
 }
 
 void OpenGLRenderer3D::Exit() {
+#ifdef __APPLE__
+  if (window && context && SDL_GL_MakeCurrent(window, context) != 0) {
+    Log(e_Error, "OpenGLRenderer3D", "Exit",
+        "Could not reacquire the OpenGL context: " + std::string(SDL_GetError()));
+  }
+#endif
   if (noiseTexID != -1) {
     DeleteTexture(noiseTexID);
     noiseTexID = -1;
@@ -2128,6 +2143,10 @@ void LoadGLShader(GLuint shaderID, const std::string& filename) {
   for (int i = 0; i < (signed int)source.size(); i++) {
     source_flat.append(source.at(i).c_str());
     source_flat.append("\n");
+#ifdef __APPLE__
+    if (i == 0 && source.at(i).find("#version") == 0)
+      source_flat.append("#define texture2D texture\n");
+#endif
   }
 
   const char* sourceChar = source_flat.c_str();
@@ -2592,11 +2611,20 @@ void OpenGLRenderer3D::operator()() {
     printf("IMG_Init: %s\n", IMG_GetError());
   }
 
+#ifdef __APPLE__
+  if (SDL_GL_MakeCurrent(window, context) != 0) {
+    Log(e_FatalError, "OpenGLRenderer3D", "operator()()",
+        "Could not acquire the OpenGL context: " + std::string(SDL_GetError()));
+  }
+#endif
+
   // Explicitly show and bring the window to front now that the render thread is running
+#ifndef __APPLE__
   if (window) {
     SDL_ShowWindow(window);
     SDL_RaiseWindow(window);
   }
+#endif
 
   SDL_Event event;
 
@@ -2604,7 +2632,11 @@ void OpenGLRenderer3D::operator()() {
   while (!quit) {
     // process messages
 
+#ifdef __APPLE__
+    while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
+#else
     while (SDL_PollEvent(&event)) {
+#endif
       // context losing/gaining focus
       if (event.type == SDL_WINDOWEVENT) {
         if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
@@ -2648,10 +2680,14 @@ void OpenGLRenderer3D::operator()() {
     }
   }
 
+#ifndef __APPLE__
   Exit();
-
   IMG_Quit();
   SDL_QuitSubSystem(SDL_INIT_VIDEO);
+#else
+  IMG_Quit();
+  SDL_GL_MakeCurrent(window, nullptr);
+#endif
 
   Log(e_Notice, "OpenGLRenderer3D", "operator()()", "Shutting down OpenGLRenderer3D thread");
 

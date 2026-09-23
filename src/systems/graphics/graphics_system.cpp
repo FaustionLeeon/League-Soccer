@@ -1,5 +1,7 @@
 #include "graphics_system.hpp"
 
+#include <SDL2/SDL.h>
+
 #include "base/log.hpp"
 #include "base/utils.hpp"
 #include "graphics_scene.hpp"
@@ -32,14 +34,25 @@ void GraphicsSystem::Initialize(const Properties& config) {
   height = config.GetInt("context_y", 720);
   bpp = config.GetInt("context_bpp", 32);
   bool fullscreen = config.GetBool("context_fullscreen", false);
+  bool contextCreated = false;
+#ifdef __APPLE__
+  // Cocoa requires both SDL video initialization and NSWindow creation on the
+  // process main thread. Release the GL context before handing it to the
+  // renderer thread.
+  contextCreated = renderer3DTask->CreateContext(width, height, bpp, fullscreen);
+  if (contextCreated)
+    SDL_GL_MakeCurrent(nullptr, nullptr);
   renderer3DTask->Run();
-
+#else
+  renderer3DTask->Run();
   boost::intrusive_ptr<Renderer3DMessage_CreateContext> createContext(
       new Renderer3DMessage_CreateContext(width, height, bpp, fullscreen));
   renderer3DTask->messageQueue.PushMessage(createContext);
   createContext->Wait();
+  contextCreated = createContext->success;
+#endif
 
-  if (!createContext->success) {
+  if (!contextCreated) {
     Log(e_FatalError, "GraphicsSystem", "Initialize", "Could not create context");
   } else {
     Log(e_Notice, "GraphicsSystem", "Initialize",
@@ -70,6 +83,10 @@ void GraphicsSystem::Exit() {
   R3Dshutdown->Wait();
 
   renderer3DTask->Join();
+#ifdef __APPLE__
+  renderer3DTask->Exit();
+  SDL_QuitSubSystem(SDL_INIT_VIDEO);
+#endif
   delete renderer3DTask;
   renderer3DTask = nullptr;
 }

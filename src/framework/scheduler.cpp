@@ -1,5 +1,9 @@
 #include "scheduler.hpp"
 
+#ifdef __APPLE__
+#include <SDL2/SDL.h>
+#endif
+
 #include "base/log.hpp"
 #include "managers/environmentmanager.hpp"
 #include "managers/resourcemanagerpool.hpp"
@@ -161,6 +165,11 @@ bool Scheduler::Run() {
   bool sequencesQuitMessageDone = false;
 
   while (EnvironmentManager::GetInstance().GetQuit() == false || GetSequenceCount() > 0) {
+#ifdef __APPLE__
+    // Cocoa requires native event pumping on the process main thread. The
+    // renderer consumes the queued SDL events without invoking Cocoa itself.
+    SDL_PumpEvents();
+#endif
     if (EnvironmentManager::GetInstance().GetQuit()) {
       // let sequences finish
       if (!sequencesQuitMessageDone) {
