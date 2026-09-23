@@ -69,6 +69,7 @@ protected:
   float lastDesiredVelocity;
   float cpuShotDecisionThreshold;
   float cpuShotRandomBonus;
+  float cpuShotAccuracy;
   bool cpuPrioritizeShots;
 };
 

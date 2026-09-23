@@ -34,6 +34,7 @@ ElizaController::ElizaController(Match* match) : PlayerController(match) {
       clamp(GetConfiguration()->GetReal("cpu_shot_decision_threshold", 0.55f), 0.0f, 1.0f);
   cpuShotRandomBonus =
       clamp(GetConfiguration()->GetReal("cpu_shot_random_bonus", 0.28f), 0.0f, 1.0f);
+  cpuShotAccuracy = clamp(GetConfiguration()->GetReal("cpu_shot_accuracy", 0.0f), 0.0f, 1.0f);
   cpuPrioritizeShots = GetConfiguration()->GetBool("cpu_prioritize_shots", false);
 }
 
@@ -1145,17 +1146,19 @@ void ElizaController::GetOnTheBallCommands(std::vector<PlayerCommand>& commandQu
       command.useDesiredLookAt = false;
       command.desiredVelocityFloat =
           rawInputVelocityFloat;  // this is so we can use sprint/dribble buttons as shot modifiers
+      // cpu_shot_accuracy == 0 keeps the original aim: a lateral spread driven by
+      // technical_shot plus a momentum term that drags the shot backwards while
+      // sprinting. Raising it narrows both so CPU-vs-CPU matches put shots on target.
+      float aimSpread = (1.0f - player->GetStat("technical_shot")) * (1.0f - cpuShotAccuracy);
+      float momentumBias = 0.3f * (1.0f - cpuShotAccuracy);
       command.touchInfo.desiredDirection =
-          (Vector3((pitchHalfW + 1.0f) * -team->GetSide(),
-                   y + random(-1.0f + player->GetStat("technical_shot"),
-                              1.0f - player->GetStat("technical_shot")),
-                   0) -
+          (Vector3((pitchHalfW + 1.0f) * -team->GetSide(), y + random(-aimSpread, aimSpread), 0) -
            (CastPlayer()->GetPosition() + CastPlayer()->GetMovement() * 0.2f))
               .GetNormalized(Vector3(-team->GetSide(), 0, 0));
       command.touchInfo.desiredDirection =
-          (command.touchInfo.desiredDirection * 0.7f +
+          (command.touchInfo.desiredDirection * (1.0f - momentumBias) +
            -CastPlayer()->GetDirectionVec() * (CastPlayer()->GetFloatVelocity() / sprintVelocity) *
-               0.3f)
+               momentumBias)
               .GetNormalized();
       command.touchInfo.autoDirectionBias = 1.0f;
       command.touchInfo.desiredPower =
