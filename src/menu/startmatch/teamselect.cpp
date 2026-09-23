@@ -72,15 +72,22 @@ int AddCompetitions(Gui2IconSelector* selector) {
   return competitionCount;
 }
 
-int AddTeams(Gui2IconSelector* selector, const std::string& competition_id) {
+int AddTeams(Gui2IconSelector* selector, const std::string& competition_id,
+             int preferredTeamID = 0) {
   if (competition_id.empty()) {
     selector->AddEntry("", TR("teamselect_none_team"), kSelectorFallbackImage);
     return 0;
   }
 
-  auto result =
-      GetDB()->Query("select id, name, logo_url from teams where league_id = " + competition_id +
-                     " order by name");
+  std::string query =
+      "select id, name, logo_url from teams where league_id = " + competition_id;
+  if (preferredTeamID > 0) {
+    query += " order by case when id = " + int_to_str(preferredTeamID) +
+             " then 0 else 1 end, name";
+  } else {
+    query += " order by name";
+  }
+  auto result = GetDB()->Query(query);
   int teamCount = 0;
 
   for (unsigned int r = 0; r < result->data.size(); r++) {
@@ -271,13 +278,16 @@ void TeamSelectPage::FocusStart2() {
 
 void TeamSelectPage::SetupTeamSelect1() {
   teamSelect1->ClearEntries();
-  AddTeams(teamSelect1, competitionSelect1->GetSelectedEntryID());
+  AddTeams(teamSelect1, competitionSelect1->GetSelectedEntryID(),
+           GetConfiguration()->GetInt("external_home_team_id", 0));
   UpdateReadyButtons();
 }
 
 void TeamSelectPage::SetupTeamSelect2() {
   teamSelect2->ClearEntries();
-  const int teamCount = AddTeams(teamSelect2, competitionSelect2->GetSelectedEntryID());
+  const int teamCount =
+      AddTeams(teamSelect2, competitionSelect2->GetSelectedEntryID(),
+               GetConfiguration()->GetInt("external_away_team_id", 0));
   if (teamCount > 1 && teamSelect2->GetSelectedEntryID() == teamSelect1->GetSelectedEntryID()) {
     teamSelect2->SetSelectedEntryIndex(1);
   }
