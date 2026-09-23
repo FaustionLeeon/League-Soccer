@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 #include "../../data/matchhistory.hpp"
 #include "../../league/leaguecode.hpp"
@@ -22,6 +25,51 @@ constexpr unsigned long kMenuSmokeQuitDelay_ms = 1000;
 
 bool MenuSmokeFullMatchEnabled() {
   return GetConfiguration()->GetBool("menu_smoke_test_full_match", false);
+}
+
+void EmitExternalMatchResult(Match* match) {
+  MatchData* data = match->GetMatchData();
+  std::ostringstream json;
+  json << "{\"status\":\"completed\""
+       << ",\"homeScore\":" << data->GetGoalCount(0)
+       << ",\"awayScore\":" << data->GetGoalCount(1)
+       << ",\"homePossessionMs\":" << data->GetPossessionTime_ms(0)
+       << ",\"awayPossessionMs\":" << data->GetPossessionTime_ms(1)
+       << ",\"homeShots\":" << data->GetShots(0)
+       << ",\"awayShots\":" << data->GetShots(1)
+       << ",\"homeShotsOnTarget\":" << data->GetShotsOnTarget(0)
+       << ",\"awayShotsOnTarget\":" << data->GetShotsOnTarget(1)
+       << ",\"homePassAttempts\":" << data->GetPassAttempts(0)
+       << ",\"awayPassAttempts\":" << data->GetPassAttempts(1)
+       << ",\"homePassesCompleted\":" << data->GetPassesCompleted(0)
+       << ",\"awayPassesCompleted\":" << data->GetPassesCompleted(1)
+       << ",\"homeFouls\":" << data->GetFouls(0)
+       << ",\"awayFouls\":" << data->GetFouls(1) << "}";
+
+  const std::string payload = json.str();
+  printf("[league-soccer-result] %s\n", payload.c_str());
+  fflush(stdout);
+
+  const std::string resultPath = GetConfiguration()->Get("match_result_path", "");
+  if (resultPath.empty())
+    return;
+
+  const std::filesystem::path output(resultPath);
+  std::error_code error;
+  if (!output.parent_path().empty())
+    std::filesystem::create_directories(output.parent_path(), error);
+  if (error) {
+    printf("[league-soccer-result-error] %s\n", error.message().c_str());
+    return;
+  }
+
+  const std::filesystem::path temporary = output.string() + ".tmp";
+  std::ofstream stream(temporary, std::ios::out | std::ios::trunc);
+  stream << payload << "\n";
+  stream.close();
+  std::filesystem::rename(temporary, output, error);
+  if (error)
+    printf("[league-soccer-result-error] %s\n", error.message().c_str());
 }
 
 }  // namespace
@@ -244,6 +292,7 @@ GameOverPage::GameOverPage(Gui2WindowManager* windowManager, const Gui2PageData&
 
     MatchHistory::EnsureTable();
     MatchHistory::SaveMatch(entry);
+    EmitExternalMatchResult(match);
   }
 
   Gui2Button* buttonHistory =

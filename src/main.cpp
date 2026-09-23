@@ -482,9 +482,11 @@ int main(int argc, const char** argv) {
   // database
 
   db = new Database();
-  bool dbSuccess = db->Load("databases/default/database.sqlite");
+  const std::string databasePath =
+      config->Get("database_path", "databases/default/database.sqlite");
+  bool dbSuccess = db->Load(databasePath);
   if (!dbSuccess)
-    Log(e_FatalError, "main", "()", "Could not open database");
+    Log(e_FatalError, "main", "()", "Could not open database " + databasePath);
 
   // initialize systems
 

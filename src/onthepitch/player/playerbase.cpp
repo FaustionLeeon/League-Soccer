@@ -9,6 +9,12 @@
 
 int PlayerBase::playerCount = 0;
 
+void PlayerBase::Injure(float severity) {
+  if (!GetConfiguration()->GetBool("injuries_enabled", true))
+    return;
+  injuryLevel = clamp(injuryLevel + severity, 0.0f, 1.0f);
+}
+
 PlayerBase::PlayerBase(Match* match, PlayerData* playerData)
     : match(match),
       playerData(playerData),

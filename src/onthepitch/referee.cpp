@@ -483,12 +483,13 @@ bool Referee::CheckFoul() {
     buffer.teamID = foul.foulVictim->GetTeam()->GetID();
     buffer.active = true;
     std::string spamMessage = Localization::GetInstance().Translate("ingame_foul") + "!";
-    if (foul.foulType == 2) {
+    const bool cardsEnabled = GetConfiguration()->GetBool("cards_enabled", true);
+    if (cardsEnabled && foul.foulType == 2) {
       spamMessage.append(" (" + Localization::GetInstance().Translate("ingame_yellow_card") + ")");
       foul.foulPlayer->GiveYellowCard(match->GetActualTime_ms() +
                                       6000);  // need to find out proper moment
     }
-    if (foul.foulType == 3) {
+    if (cardsEnabled && foul.foulType == 3) {
       spamMessage.append(" (" + Localization::GetInstance().Translate("ingame_red_card") + ")");
       foul.foulPlayer->GiveRedCard(match->GetActualTime_ms() +
                                    6000);  // need to find out proper moment

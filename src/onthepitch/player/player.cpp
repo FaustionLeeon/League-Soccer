@@ -368,15 +368,18 @@ void Player::Process() {
     Vector3 posAfter = CastHumanoid()->GetPosition();
 
     float distance = (posAfter - posBefore).GetLength();
-    const float fatigueWorkload = GameplayTuning::GetFatigueWorkloadFactor(
-        (posAfter - posBefore).GetLength() * 100.0f, GetMaxVelocity(), hasPossession);
-    fatigueFactorInv -= distance * 0.00003f * (2.0f - GetStaminaStat()) * fatigueWorkload *
-                        (1.0f / match->GetMatchDurationFactor());
-    fatigueFactorInv = clamp(fatigueFactorInv, 0.01f, 1.0f);
+    if (GetConfiguration()->GetBool("fatigue_enabled", true)) {
+      const float fatigueWorkload = GameplayTuning::GetFatigueWorkloadFactor(
+          (posAfter - posBefore).GetLength() * 100.0f, GetMaxVelocity(), hasPossession);
+      fatigueFactorInv -= distance * 0.00003f * (2.0f - GetStaminaStat()) * fatigueWorkload *
+                          (1.0f / match->GetMatchDurationFactor());
+      fatigueFactorInv = clamp(fatigueFactorInv, 0.01f, 1.0f);
+    }
     // if (GetDebug() && match->GetActualTime_ms() % 1000 == 0) printf("fatigue: %f\n",
     // GetFatigueFactorInv());
 
-    if (cards > 1 && cardEffectiveTime_ms <= match->GetActualTime_ms()) {
+    if (GetConfiguration()->GetBool("send_offs_enabled", true) && cards > 1 &&
+        cardEffectiveTime_ms <= match->GetActualTime_ms()) {
       SendOff();
     }
 
