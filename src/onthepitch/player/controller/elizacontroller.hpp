@@ -67,6 +67,8 @@ protected:
 
   Vector3 lastDesiredDirection;
   float lastDesiredVelocity;
+  float cpuShotDecisionThreshold;
+  float cpuShotRandomBonus;
 };
 
 #endif

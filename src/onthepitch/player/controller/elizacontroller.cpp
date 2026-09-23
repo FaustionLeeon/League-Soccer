@@ -30,6 +30,10 @@
 ElizaController::ElizaController(Match* match) : PlayerController(match) {
   lastDesiredDirection = Vector3(0);
   lastDesiredVelocity = 0;
+  cpuShotDecisionThreshold =
+      clamp(GetConfiguration()->GetReal("cpu_shot_decision_threshold", 0.55f), 0.0f, 1.0f);
+  cpuShotRandomBonus =
+      clamp(GetConfiguration()->GetReal("cpu_shot_random_bonus", 0.28f), 0.0f, 1.0f);
 }
 
 ElizaController::~ElizaController() {
@@ -1131,9 +1135,9 @@ void ElizaController::GetOnTheBallCommands(std::vector<PlayerCommand>& commandQu
     if (Verbose())
       printf("ODDS: %f\n", odds);
 
-    // PES 5/6 polish: reduce random luck in shot decisions — CPU should wait for
-    // a genuinely good angle before pulling the trigger.
-    if (odds + random(0.0f, 0.28f) > 0.55f) {
+    // Keep the PES-style default, but allow external CPU-vs-CPU simulations to
+    // request more attacking matches without replacing the football AI.
+    if (odds + random(0.0f, cpuShotRandomBonus) > cpuShotDecisionThreshold) {
       PlayerCommand command;
       command.desiredFunctionType = e_FunctionType_Shot;
       command.useDesiredMovement = false;
