@@ -47,9 +47,9 @@ Gui2ScoreBoard::Gui2ScoreBoard(Gui2WindowManager* windowManager, Match* match)
   goalCount[0] = 0;
   goalCount[1] = 0;
 
-  constexpr float kScoreboardBackgroundAspectRatio = 1024.0f / 64.0f;
-  const float scoreboardBackgroundWidth =
-      windowManager->GetWidthPercentForHeight(height_percent, kScoreboardBackgroundAspectRatio);
+  // The original compact layout only had room for three-letter abbreviations.
+  // External classroom teams need their complete names to remain identifiable.
+  const float scoreboardBackgroundWidth = width_percent * 0.78f;
   const float scoreboardBackgroundX = (width_percent - scoreboardBackgroundWidth) * 0.5f;
   Gui2Image* bg = new Gui2Image(windowManager, "image_scoreboard_bg", scoreboardBackgroundX, 0,
                                 scoreboardBackgroundWidth, height_percent);
@@ -65,7 +65,7 @@ Gui2ScoreBoard::Gui2ScoreBoard(Gui2WindowManager* windowManager, Match* match)
   const float bgW = scoreboardBackgroundWidth;
 
   // 1. League logo (left edge)
-  const float leagueLogoX = bgX + bgW * 0.02f;
+  const float leagueLogoX = bgX + bgW * 0.015f;
   leagueLogo = new Gui2Image(windowManager, "game_scoreboard_leaguelogo", leagueLogoX, 0,
                              squareLogoWidth, height_percent);
   this->AddView(leagueLogo);
@@ -73,44 +73,44 @@ Gui2ScoreBoard::Gui2ScoreBoard(Gui2WindowManager* windowManager, Match* match)
   leagueLogo->Show();
 
   // 2. Time caption
-  const float timeX = leagueLogoX + squareLogoWidth + bgW * 0.015f;
-  const float timeW = bgW * 0.15f;
+  const float timeX = leagueLogoX + squareLogoWidth + bgW * 0.008f;
+  const float timeW = bgW * 0.11f;
   timeCaption = new Gui2Caption(windowManager, "game_scoreboard_timecaption", timeX, 0, timeW,
                                 height_percent * 0.9f, "0:00");
 
   // 3. Team 1 (Home) Logo & Name
-  const float team1LogoX = bgX + bgW * 0.23f;
+  const float team1LogoX = bgX + bgW * 0.18f;
   teamLogo[0] = new Gui2Image(windowManager, "game_scoreboard_team1logo", team1LogoX, 0,
                               squareLogoWidth, height_percent);
   this->AddView(teamLogo[0]);
   teamLogo[0]->LoadImage(ResolveScoreboardTeamLogo(match->GetTeam(0)->GetTeamData()));
   teamLogo[0]->Show();
 
-  const float team1NameX = team1LogoX + squareLogoWidth + bgW * 0.015f;
-  const float team1NameW = bgW * 0.14f;
+  const float team1NameX = team1LogoX + squareLogoWidth + bgW * 0.008f;
+  const float team1NameW = bgW * 0.21f;
   teamNameCaption[0] =
       new Gui2Caption(windowManager, "game_scoreboard_team1name", team1NameX, 0, team1NameW,
-                      height_percent * 0.9f, match->GetTeam(0)->GetTeamData()->GetShortName());
+                      height_percent * 0.9f, match->GetTeam(0)->GetTeamData()->GetName());
 
   // 4. Scores (centered around 50% of background width)
-  const float score1X = bgX + bgW * 0.445f;
-  const float score1W = bgW * 0.045f;
+  const float score1X = bgX + bgW * 0.455f;
+  const float score1W = bgW * 0.035f;
   goalCountCaption[0] = new Gui2Caption(windowManager, "game_scoreboard_team1goals", score1X, 0,
                                         score1W, height_percent * 0.9f, "0");
 
   const float score2X = bgX + bgW * 0.51f;
-  const float score2W = bgW * 0.045f;
+  const float score2W = bgW * 0.035f;
   goalCountCaption[1] = new Gui2Caption(windowManager, "game_scoreboard_team2goals", score2X, 0,
                                         score2W, height_percent * 0.9f, "0");
 
   // 5. Team 2 (Away) Name & Logo
-  const float team2NameX = bgX + bgW * 0.57f;
-  const float team2NameW = bgW * 0.14f;
+  const float team2NameX = bgX + bgW * 0.56f;
+  const float team2NameW = bgW * 0.21f;
   teamNameCaption[1] =
       new Gui2Caption(windowManager, "game_scoreboard_team2name", team2NameX, 0, team2NameW,
-                      height_percent * 0.9f, match->GetTeam(1)->GetTeamData()->GetShortName());
+                      height_percent * 0.9f, match->GetTeam(1)->GetTeamData()->GetName());
 
-  const float team2LogoX = team2NameX + team2NameW + bgW * 0.015f;
+  const float team2LogoX = team2NameX + team2NameW + bgW * 0.008f;
   teamLogo[1] = new Gui2Image(windowManager, "game_scoreboard_team2logo", team2LogoX, 0,
                               squareLogoWidth, height_percent);
   this->AddView(teamLogo[1]);
